@@ -15,7 +15,7 @@ describe("run", () => {
     const code = run(["--version"], { out, version: () => "9.9.9" });
 
     expect(code).toBe(0);
-    expect(lines).toEqual(["意図的に誤った期待値"]);
+    expect(lines).toEqual(["9.9.9"]);
   });
 
   it("-v でも --version と同じ結果になる", () => {
