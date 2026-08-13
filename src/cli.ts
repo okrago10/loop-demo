@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 import { realpathSync } from "node:fs";
+import { createInterface } from "node:readline/promises";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
+import { createEditCommand } from "./commands/edit.js";
 import { createLogCommand } from "./commands/log.js";
+import { createRmCommand } from "./commands/rm.js";
 import { createStartCommand } from "./commands/start.js";
 import { createStatusCommand } from "./commands/status.js";
 import { createStopCommand } from "./commands/stop.js";
@@ -152,6 +155,33 @@ export async function run(argv: readonly string[], deps: CliDeps): Promise<numbe
 }
 
 /**
+ * 標準入力で「はい／いいえ」を尋ねる。`rm` の確認に使う。
+ *
+ * **対話端末でないときは尋ねずに失敗する。** パイプやスクリプトから実行されていると
+ * 答えを受け取れず、既定を「はい」にすると意図しない削除になり、「いいえ」にすると
+ * 何も起きない理由が分からない。`--yes` を明示してもらう。
+ *
+ * `y` / `yes`（大文字小文字を問わない）だけを肯定とみなす。空の入力（Enter だけ）は
+ * 否定にする——取り消せない操作なので、うっかり通さない。
+ */
+async function confirmOnStdin(question: string): Promise<boolean> {
+  if (process.stdin.isTTY !== true) {
+    throw new UserError(
+      `確認の入力を受け取れません（対話端末ではありません）。--yes を付けて実行してください: ${question}`,
+    );
+  }
+
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await prompt.question(`${question} [y/N] `);
+
+    return /^y(?:es)?$/i.test(answer.trim());
+  } finally {
+    prompt.close();
+  }
+}
+
+/**
  * 実際に使うサブコマンドを組み立てる。
  *
  * 保存先の決定と現在時刻・採番の取得はここでだけ行う。`run` と各コマンドは注入された
@@ -173,6 +203,8 @@ function buildCommands(): readonly Command[] {
     createSummaryCommand(deps),
     createLogCommand(deps),
     createWeekCommand(deps),
+    createEditCommand(deps),
+    createRmCommand(deps, confirmOnStdin),
   ];
 }
 

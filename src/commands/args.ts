@@ -113,18 +113,32 @@ export function rejectUnknownArgs(
  * 実行中を理由に拒否されるため、打ち間違いから手詰まりになる）。
  */
 export function resolveClockTime(value: string, now: Date): Date {
+  return resolveClockTimeOn(value, now, now, "--at");
+}
+
+/**
+ * `HH:MM` を**指定した日付の**その時刻として解決する。
+ *
+ * `resolveClockTime` は「今日の HH:MM」を返すが、既にある記録を編集する（#17）ときは
+ * **その記録自身の日付**に適用しなければならない。今日の日付に当てると、3日前の記録を
+ * 直したつもりで今日へ移動してしまう。
+ *
+ * 未来を弾く規則は共通。`--at` と同じ理由で、未来の開始時刻を持つ記録を作らせない。
+ * オプション名を引数で受けるのは、エラーメッセージに実際に打ったオプションを出すため。
+ */
+export function resolveClockTimeOn(value: string, onDate: Date, now: Date, label: string): Date {
   const match = CLOCK_TIME.exec(value);
   if (match === null) {
-    throw new UserError(`--at は HH:MM または HH:MM:SS で指定してください: ${value}`);
+    throw new UserError(`${label} は HH:MM または HH:MM:SS で指定してください: ${value}`);
   }
 
   const [, hours, minutes, seconds] = match;
-  const at = new Date(now);
+  const at = new Date(onDate);
   at.setHours(Number(hours), Number(minutes), Number(seconds ?? "0"), 0);
 
   if (at.getTime() > now.getTime()) {
     throw new UserError(
-      `--at に未来の時刻は指定できません: ${value}（現在は ${formatClockTime(now)}）`,
+      `${label} に未来の時刻は指定できません: ${value}（現在は ${formatClockTime(now)}）`,
     );
   }
 
