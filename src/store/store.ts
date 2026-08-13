@@ -1,0 +1,72 @@
+import { join } from "node:path";
+
+import type { Entry } from "../domain/entry.js";
+
+/**
+ * 列挙する時間の範囲。半開区間 `[start, end)` として扱う。
+ *
+ * `domain/period.ts` の `Period`（#6）と構造的に同じ形にしてあるため、そちらが
+ * 入ったあとは変換なしでそのまま渡せる。store から domain の期間計算を参照すると
+ * 依存の向きが逆になるため、型の共有はしていない。
+ */
+export interface StoreRange {
+  readonly start: Date;
+  readonly end: Date;
+}
+
+/**
+ * 記録の永続化。
+ *
+ * 実装は差し替え可能にしてある（テストではファイルを使わない実装や一時ディレクトリを
+ * 指した実装を渡せる）。
+ */
+export interface Store {
+  /** 新しいエントリを追加する。同じ id が既にあれば失敗する。 */
+  append(entry: Entry): Promise<void>;
+
+  /** 既存のエントリを同じ id で置き換える。存在しなければ失敗する。 */
+  update(entry: Entry): Promise<void>;
+
+  /** エントリを削除する。存在しなければ失敗する。 */
+  delete(id: string): Promise<void>;
+
+  /**
+   * 範囲に時間が重なるエントリを列挙する。
+   *
+   * **切り出しは行わない。** 範囲からはみ出す部分を含めたエントリをそのまま返す。
+   * 期間で切り出したいときは `clipToPeriod`（#6）を使う。
+   * 並び順は追加した順で、並べ替えは表示側（#16）の担当。
+   */
+  listByRange(range: StoreRange): Promise<Entry[]>;
+
+  /** 実行中（`end` が未設定）のエントリを返す。なければ `undefined`。 */
+  findRunning(): Promise<Entry | undefined>;
+}
+
+/** 既定の保存先ディレクトリ名。 */
+const DEFAULT_DIR_NAME = ".tock";
+
+/** 保存先を差し替えるための環境変数。 */
+const DIR_ENV_NAME = "TOCK_DIR";
+
+/** 保存するファイル名。 */
+const FILE_NAME = "entries.jsonl";
+
+/**
+ * 保存先のパスを決める。
+ *
+ * 環境変数とホームディレクトリを引数で受け取るので、テストから実際の `~/.tock` を
+ * 触らずに検証できる。
+ */
+export function resolveStorePath(
+  env: Readonly<Record<string, string | undefined>>,
+  homeDir: string,
+): string {
+  const configured = env[DIR_ENV_NAME];
+
+  if (configured !== undefined && configured.trim() !== "") {
+    return join(configured, FILE_NAME);
+  }
+
+  return join(homeDir, DEFAULT_DIR_NAME, FILE_NAME);
+}
