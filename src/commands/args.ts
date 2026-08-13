@@ -52,6 +52,21 @@ export function takeOption(
 }
 
 /**
+ * 値を取らないフラグの有無を調べ、残りを返す。
+ *
+ * 同じフラグを複数回書いても有効として扱う（`--short --short`）。打ち間違いではあるが、
+ * 意図は明らかなのでエラーにする理由がない。
+ */
+export function takeFlag(
+  argv: readonly string[],
+  name: string,
+): { present: boolean; rest: string[] } {
+  const rest = argv.filter((token) => token !== name);
+
+  return { present: rest.length !== argv.length, rest };
+}
+
+/**
  * オプションを取り出した後に余ったトークンを検査し、解釈できないものを弾く。
  *
  * 黙って捨てると `tock stop --help` が使い方の表示ではなく打刻の終了として成功する。

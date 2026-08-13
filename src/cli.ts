@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { createStartCommand } from "./commands/start.js";
+import { createStatusCommand } from "./commands/status.js";
 import { createStopCommand } from "./commands/stop.js";
 import { randomId } from "./id.js";
 import { createJsonlStore } from "./store/jsonl-store.js";
@@ -159,7 +160,7 @@ function buildCommands(): readonly Command[] {
     newId: randomId,
   };
 
-  return [createStartCommand(deps), createStopCommand(deps)];
+  return [createStartCommand(deps), createStopCommand(deps), createStatusCommand(deps)];
 }
 
 /**
