@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createEntry } from "../../src/domain/entry.js";
 import { durationMs } from "../../src/domain/period.js";
-import { type RoundingRule, roundMs } from "../../src/domain/rounding.js";
+import { type RoundingMode, type RoundingRule, roundMs } from "../../src/domain/rounding.js";
 
 const MINUTE = 60 * 1000;
 const SECOND = 1000;
@@ -159,5 +159,26 @@ describe("roundMs は元データを書き換えない", () => {
 
     expect(roundMs(ms, given)).toBe(roundMs(ms, given));
     expect(roundMs(roundMs(ms, given), given)).toBe(roundMs(ms, given));
+  });
+});
+
+// 型を外れた mode で戻り値が undefined になると、number という約束が破れて
+// 呼び出し側の算術が NaN になる。集計に流れると静かに壊れるので、実行時にも落とす
+describe("roundMs の不正な丸め方", () => {
+  it.each([
+    ["知らないモード", "bogus"],
+    ["空文字", ""],
+    ["大文字", "CEIL"],
+  ])("mode が %s なら Error を投げる（undefined を返さない）", (_label, mode) => {
+    const given = { mode: mode as RoundingMode, unitMinutes: 1 };
+
+    expect(() => roundMs(90 * SECOND, given)).toThrow(/丸め方/);
+  });
+
+  it("端数が無いときは不正な mode でも Error にならない（早期 return のため）", () => {
+    // 丸める必要が無い入力は mode を見ずに返す。仕様として固定しておく
+    const given = { mode: "bogus" as RoundingMode, unitMinutes: 1 };
+
+    expect(roundMs(2 * MINUTE, given)).toBe(2 * MINUTE);
   });
 });

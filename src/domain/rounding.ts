@@ -62,6 +62,16 @@ export function roundMs(ms: number, rule: RoundingRule): number {
     case "nearest": {
       return remainder * 2 >= unit ? floored + unit : floored;
     }
+    default: {
+      // 型を外れた mode（設定ファイル #22 など、型検査を通らない経路から来る値）を
+      // 黙って undefined で返すと、戻り値の型が number である約束が破れ、呼び出し側の
+      // 算術が NaN になって集計が静かに壊れる。ここで落とす。
+      //
+      // never への代入にしているのは、**モードを増やして case を書き忘れたときに
+      // 型検査で落ちる**ようにするため。実行時の防御と将来の追加漏れ検出を兼ねる。
+      const unhandled: never = rule.mode;
+      throw new Error(`丸め方が不正です: ${JSON.stringify(unhandled)}`);
+    }
   }
 }
 
