@@ -1,7 +1,7 @@
 import { formatDay } from "../domain/day.js";
 import type { WeekSummary } from "../domain/week-summary.js";
 import { formatDuration } from "./duration.js";
-import { displayWidth, pad } from "./summary.js";
+import { pad, widestWidth } from "./columns.js";
 
 /** タグが付いていない時間の行に使う見出し。タグ名と混ざらないよう括弧で囲む。 */
 const UNTAGGED_LABEL = "(タグなし)";
@@ -62,9 +62,9 @@ export function formatWeekLines(summary: WeekSummary): string[] {
     formatDuration(entry.row.totalMs),
   ]);
 
-  const labelWidth = widest(rows.map((entry) => entry.label));
+  const labelWidth = widestWidth(rows.map((entry) => entry.label));
   const columnWidths = headers.map((header, index) =>
-    widest([header, ...cells.map((row) => row[index] ?? "")]),
+    widestWidth([header, ...cells.map((row) => row[index] ?? "")]),
   );
 
   const lines = [range, line("", labelWidth, headers, columnWidths)];
@@ -100,13 +100,4 @@ function line(
   const columns = values.map((value, index) => pad(value, columnWidths[index] ?? 0));
 
   return [pad(label, labelWidth), ...columns].join(GAP).trimEnd();
-}
-
-function widest(texts: readonly string[]): number {
-  let width = 0;
-  for (const text of texts) {
-    width = Math.max(width, displayWidth(text));
-  }
-
-  return width;
 }

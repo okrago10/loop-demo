@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { WeekSummary } from "../../src/domain/week-summary.js";
 // 全角の数え方をテスト側に書き写さない。写すと本体と食い違ったまま通ってしまう
-import { displayWidth as displayWidthOf } from "../../src/format/summary.js";
+import { displayWidth as displayWidthOf } from "../../src/format/columns.js";
 import { formatWeekLines } from "../../src/format/week.js";
 
 function local(day: number): Date {

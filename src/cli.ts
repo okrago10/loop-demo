@@ -3,10 +3,12 @@ import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
+import { createLogCommand } from "./commands/log.js";
 import { createStartCommand } from "./commands/start.js";
 import { createStatusCommand } from "./commands/status.js";
 import { createStopCommand } from "./commands/stop.js";
 import { createSummaryCommand, createTodayCommand } from "./commands/summary.js";
+import { createSwitchCommand } from "./commands/switch.js";
 import { createWeekCommand } from "./commands/week.js";
 import { randomId } from "./id.js";
 import { createJsonlStore } from "./store/jsonl-store.js";
@@ -166,8 +168,10 @@ function buildCommands(): readonly Command[] {
     createStartCommand(deps),
     createStopCommand(deps),
     createStatusCommand(deps),
+    createSwitchCommand(deps),
     createTodayCommand(deps),
     createSummaryCommand(deps),
+    createLogCommand(deps),
     createWeekCommand(deps),
   ];
 }

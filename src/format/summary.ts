@@ -1,4 +1,5 @@
 import type { Summary } from "../domain/summary.js";
+import { displayWidth, pad } from "./columns.js";
 import { formatDuration } from "./duration.js";
 
 /** タグが付いていない時間の行に使う見出し。タグ名と混ざらないよう括弧で囲む。 */
@@ -49,30 +50,4 @@ export function formatSummaryLines(day: string, summary: Summary): string[] {
   lines.push(`${pad(TOTAL_LABEL, width)}  ${formatDuration(summary.totalMs)}`);
 
   return lines;
-}
-
-/**
- * 全角文字を2桁として数えた表示幅。
- *
- * 対象は CJK・ハングル・全角記号の範囲。絵文字などの結合文字までは扱わない
- * （タグ名として現実的でなく、扱い始めると際限がない）。
- *
- * **週次サマリ（#19）も同じ数え方を使うので export している。** 同じ正規表現を2箇所に
- * 持つと、対応する文字の範囲を広げたときに片方だけ古いまま残る。
- * なお #16（PR #56）はこれを `format/columns.ts` へ切り出しているため、
- * 先にどちらがマージされるかで置き場所が変わる。
- */
-const WIDE_CHARACTER = /[ᄀ-ᅟ⺀-〾ぁ-㏿㐀-䶿一-鿿ꀀ-꓏가-힣豈-﫿︰-﹯＀-｠￠-￦]/;
-
-export function displayWidth(text: string): number {
-  let width = 0;
-  for (const character of text) {
-    width += WIDE_CHARACTER.test(character) ? 2 : 1;
-  }
-
-  return width;
-}
-
-export function pad(text: string, width: number): string {
-  return text + " ".repeat(Math.max(0, width - displayWidth(text)));
 }
