@@ -111,6 +111,20 @@ function toRow(entry: Entry, asOf: Date): LogRow {
  * `log` は既にある記録を読むだけのコマンドなので、1件の壊れたデータで一覧全体が
  * 読めなくなるのは避ける。開始時刻が未来の記録を利用者向けのエラーとして扱うのは
  * #44 の担当範囲。
+ *
+ * **実行中だけを 0 で抑え、完了済みの `end < start` を抑えていないのは意図的。**
+ * 非対称に見えるが、両者は性質が違う。
+ *
+ * - 実行中の長さは `asOf`（外から注入する現在時刻）に依存する。時計のずれなどで
+ *   `asOf < start` は起こりうるため、値の側で抑える
+ * - 完了済みの `end < start` は `Entry` の不変条件違反である。`createEntry` が弾き、
+ *   さらに `jsonl-store` は**読み込み時にその行を捨てる**
+ *   （`parseEntry` の `Date.parse(end) < Date.parse(start)` で `undefined` を返す）。
+ *   store を通る経路では到達しない
+ *
+ * ここで 0 に丸めると、不変条件が破れた記録を `0s` として黙って表示することになり、
+ * 壊れていることが分からなくなる。**#40 で store の期間判定を domain に寄せるときは、
+ * この「読み込み時に不正な行を捨てる」保証を落とさないこと。**
  */
 function elapsedMs(start: Date, end: Date | undefined, asOf: Date): number {
   if (end !== undefined) {

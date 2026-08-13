@@ -276,6 +276,28 @@ describe("log --limit", () => {
     },
   );
 
+  // Number() に任せると通ってしまう書き方。エラーメッセージの「整数」と受け付ける範囲を
+  // 一致させるため、十進の表記だけを許す
+  it.each([
+    ["16進数", "0x10"],
+    ["指数表記", "1e2"],
+    ["符号付き", "+5"],
+    ["前後に空白", " 3 "],
+    ["先頭に 0", "01"],
+    ["全角数字", "１"],
+    ["区切り付き", "1_000"],
+  ])("--limit が十進の整数でない（%s）なら UserError で失敗する", async (_label, limit) => {
+    await expect(createLogCommand(deps(NOW)).run(["--limit", limit], io)).rejects.toThrow(
+      UserError,
+    );
+  });
+
+  it("大きな件数は通る（境界: 十進なら桁数を縛らない）", async () => {
+    await createLogCommand(deps(NOW)).run(["--limit", "1000"], io);
+
+    expect(out).toHaveLength(3);
+  });
+
   it("--limit の値が無い場合は UserError で失敗する", async () => {
     await expect(createLogCommand(deps(NOW)).run(["--limit"], io)).rejects.toThrow(UserError);
   });

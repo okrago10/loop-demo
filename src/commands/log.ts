@@ -15,6 +15,9 @@ import { type CommandDeps, rejectUnknownArgs, takeOption } from "./args.js";
  */
 const DEFAULT_LIMIT = 20;
 
+/** 十進の1以上の整数。先頭の `0`・符号・小数点・指数・空白をすべて許さない。 */
+const DECIMAL_POSITIVE_INTEGER = /^[1-9]\d*$/;
+
 /**
  * `--period` を省略したときの範囲。`Date` が表せる全範囲。
  *
@@ -98,16 +101,20 @@ function resolveTag(value: string | undefined): string | undefined {
   }
 }
 
-/** `--limit` の解決。1以上の整数だけを受け付ける。 */
+/**
+ * `--limit` の解決。**十進の1以上の整数だけ**を受け付ける。
+ *
+ * 判定を `Number` に任せると `0x10`（16）や `1e2`（100）、`+5`、前後に空白の付いた
+ * `" 3 "` まで通ってしまい、エラーメッセージの「整数で指定してください」と
+ * 実際に受け付ける範囲が食い違う。書き方を1つに絞ってから数値にする。
+ */
 function resolveLimit(value: string | undefined): number {
   if (value === undefined) {
     return DEFAULT_LIMIT;
   }
-
-  const limit = Number(value);
-  if (!Number.isInteger(limit) || limit < 1) {
+  if (!DECIMAL_POSITIVE_INTEGER.test(value)) {
     throw new UserError(`--limit は1以上の整数で指定してください: ${JSON.stringify(value)}`);
   }
 
-  return limit;
+  return Number(value);
 }
