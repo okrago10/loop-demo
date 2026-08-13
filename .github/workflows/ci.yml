@@ -1,0 +1,31 @@
+name: CI
+
+# push は main のみに絞る。フィーチャーブランチの検証は pull_request 側で走るため、
+# 両方を無条件に有効にすると 1 回の push で同じ内容が二重に実行される。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v7
+
+      - name: Node.js をセットアップ
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: 依存をインストール
+        run: npm ci
+
+      - name: 検証（typecheck + lint + test）
+        run: npm run check
