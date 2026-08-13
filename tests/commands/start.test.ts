@@ -27,6 +27,20 @@ const io = {
 /** 固定した現在時刻。テストが実行時刻に依存しないようにする。 */
 const NOW = new Date("2026-08-12T10:00:00Z");
 
+/**
+ * ローカルの壁時計で `HH:MM:SS` を指す Date を作る。
+ *
+ * `--at` はローカルタイムゾーンで解釈されるため、現在時刻を UTC 文字列で固定すると
+ * 「`--at` が未来か過去か」が実行環境の TZ によって変わってしまう。壁時計から
+ * 組み立てて、TZ に依存しないテストにする。
+ */
+function localTime(hours: number, minutes: number, seconds = 0): Date {
+  const at = new Date(NOW);
+  at.setHours(hours, minutes, seconds, 0);
+
+  return at;
+}
+
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "tock-start-"));
   store = createJsonlStore(join(dir, "entries.jsonl"));
@@ -156,28 +170,27 @@ describe("start", () => {
 });
 
 describe("start --at", () => {
+  /** ローカルの 23:00。`--at` に渡す時刻が必ず過去になるようにする。 */
+  const lateNow = localTime(23, 0);
+
   it("指定した時刻を開始時刻として記録する", async () => {
-    await createStartCommand(deps()).run(["設計", "--at", "09:30"], io);
+    await createStartCommand(deps(lateNow)).run(["設計", "--at", "09:30"], io);
 
     const entry = (await store.listByRange(allTime))[0];
-    const expected = new Date(NOW);
-    expected.setHours(9, 30, 0, 0);
 
-    expect(entry?.start).toBe(expected.toISOString());
+    expect(entry?.start).toBe(localTime(9, 30).toISOString());
   });
 
   it("秒まで指定できる", async () => {
-    await createStartCommand(deps()).run(["--at", "09:30:15"], io);
+    await createStartCommand(deps(lateNow)).run(["--at", "09:30:15"], io);
 
     const entry = (await store.listByRange(allTime))[0];
-    const expected = new Date(NOW);
-    expected.setHours(9, 30, 15, 0);
 
-    expect(entry?.start).toBe(expected.toISOString());
+    expect(entry?.start).toBe(localTime(9, 30, 15).toISOString());
   });
 
   it("--at はタグや作業名に混ざらない", async () => {
-    await createStartCommand(deps()).run(["設計 #work", "--at", "09:30"], io);
+    await createStartCommand(deps(lateNow)).run(["設計 #work", "--at", "09:30"], io);
 
     const entry = (await store.listByRange(allTime))[0];
 
@@ -192,10 +205,74 @@ describe("start --at", () => {
     ["空文字", ""],
     ["区切りがない", "0930"],
   ])("--at が不正（%s）なら UserError で失敗する", async (_label, at) => {
-    await expect(createStartCommand(deps()).run(["--at", at], io)).rejects.toThrow(UserError);
+    await expect(createStartCommand(deps(lateNow)).run(["--at", at], io)).rejects.toThrow(
+      UserError,
+    );
   });
 
   it("--at の値が無い場合は UserError で失敗する", async () => {
-    await expect(createStartCommand(deps()).run(["--at"], io)).rejects.toThrow(UserError);
+    await expect(createStartCommand(deps(lateNow)).run(["--at"], io)).rejects.toThrow(UserError);
+  });
+
+  it("--at の次が別のオプションなら値が無いものとして失敗する", async () => {
+    await expect(createStartCommand(deps(lateNow)).run(["--at", "--note"], io)).rejects.toThrow(
+      UserError,
+    );
+  });
+});
+
+describe("start --at が未来のとき", () => {
+  it("UserError で失敗する", async () => {
+    await expect(
+      createStartCommand(deps(localTime(9, 0))).run(["--at", "09:30"], io),
+    ).rejects.toThrow(UserError);
+  });
+
+  it("何も保存しない（実行中エントリを作らない）", async () => {
+    await Promise.resolve(
+      createStartCommand(deps(localTime(9, 0))).run(["--at", "09:30"], io),
+    ).catch(() => undefined);
+
+    expect(await store.listByRange(allTime)).toHaveLength(0);
+    expect(await store.findRunning()).toBeUndefined();
+  });
+
+  it("1秒でも未来なら失敗する（境界）", async () => {
+    await expect(
+      createStartCommand(deps(localTime(9, 29, 59))).run(["--at", "09:30"], io),
+    ).rejects.toThrow(UserError);
+  });
+
+  it("現在時刻と同じ時刻なら成功する（境界）", async () => {
+    await createStartCommand(deps(localTime(9, 30))).run(["--at", "09:30"], io);
+
+    expect(await store.listByRange(allTime)).toHaveLength(1);
+  });
+});
+
+describe("start の未知のオプション", () => {
+  it.each([["--help"], ["--version"], ["--unknown"]])(
+    "%s は作業名にせず UserError で失敗する",
+    async (token) => {
+      await expect(createStartCommand(deps()).run([token], io)).rejects.toThrow(UserError);
+    },
+  );
+
+  it("失敗したときは何も保存しない", async () => {
+    await Promise.resolve(createStartCommand(deps()).run(["--help"], io)).catch(() => undefined);
+
+    expect(await store.listByRange(allTime)).toHaveLength(0);
+  });
+
+  it("作業名の中に含まれる `--` は弾かない", async () => {
+    await createStartCommand(deps()).run(["設計 -- 前半だけ"], io);
+
+    expect((await store.listByRange(allTime))[0]?.note).toBe("設計 -- 前半だけ");
+  });
+
+  it("`-` 始まりの1文字ハイフンは作業名として扱う", async () => {
+    await createStartCommand(deps()).run(["-5分の中断あり"], io);
+
+    expect((await store.listByRange(allTime))[0]?.note).toBe("-5分の中断あり");
   });
 });

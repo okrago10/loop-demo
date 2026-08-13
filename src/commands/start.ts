@@ -1,6 +1,6 @@
 import { type Command, type CliIo, UserError } from "../cli.js";
 import { createEntry } from "../domain/entry.js";
-import { type CommandDeps, parseDescription, resolveAt } from "./args.js";
+import { type CommandDeps, parseDescription, rejectUnknownArgs, resolveAt } from "./args.js";
 
 /**
  * 作業の計測を開始する。
@@ -14,15 +14,21 @@ export function createStartCommand(deps: CommandDeps): Command {
     summary: "作業を開始する",
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
+      // 引数の検査を保存より先に済ませる。打ち間違いで状態が変わらないようにする
+      const { at, rest } = resolveAt(argv, deps.now());
+      rejectUnknownArgs(rest, {
+        command: "start",
+        allowedOptions: ["--at"],
+        allowPositional: true,
+      });
+      const { tags, note } = parseDescription(rest.join(" "));
+
       const running = await deps.store.findRunning();
       if (running !== undefined) {
         throw new UserError(
           `すでに実行中の作業があります（開始: ${running.start}）。先に tock stop してください`,
         );
       }
-
-      const { at, rest } = resolveAt(argv, deps.now());
-      const { tags, note } = parseDescription(rest.join(" "));
 
       const entry = createEntry(
         { start: at, tags, ...(note === undefined ? {} : { note }) },

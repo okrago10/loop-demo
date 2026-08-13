@@ -52,6 +52,19 @@ const allTime = {
   end: new Date("2100-01-01T00:00:00Z"),
 };
 
+/**
+ * ローカルの壁時計で `HH:MM` を指す Date を作る。
+ *
+ * `--at` はローカルタイムゾーンで解釈されるため、現在時刻を UTC 文字列で固定すると
+ * 「`--at` が未来か過去か」が実行環境の TZ によって変わってしまう。
+ */
+function localTime(hours: number, minutes: number, seconds = 0): Date {
+  const at = new Date("2026-08-12T12:00:00Z");
+  at.setHours(hours, minutes, seconds, 0);
+
+  return at;
+}
+
 /** 09:00 に開始した実行中エントリを作る。 */
 async function startAt9(): Promise<void> {
   await createStartCommand(deps(new Date("2026-08-12T09:00:00Z"))).run(["設計 #work"], io);
@@ -158,19 +171,15 @@ describe("stop --note", () => {
 
 describe("stop --at", () => {
   it("指定した時刻を終了時刻として記録する", async () => {
-    const now = new Date("2026-08-12T12:00:00Z");
-    await createStartCommand(deps(new Date("2026-08-12T00:30:00Z"))).run(["設計"], io);
+    await createStartCommand(deps(localTime(8, 0))).run(["設計"], io);
 
-    await createStopCommand(deps(now)).run(["--at", "10:15"], io);
+    await createStopCommand(deps(localTime(12, 0))).run(["--at", "10:15"], io);
 
-    const expected = new Date(now);
-    expected.setHours(10, 15, 0, 0);
-
-    expect((await store.listByRange(allTime))[0]?.end).toBe(expected.toISOString());
+    expect((await store.listByRange(allTime))[0]?.end).toBe(localTime(10, 15).toISOString());
   });
 
   it("開始より前の時刻を指定したら UserError で失敗する", async () => {
-    const now = new Date("2026-08-12T23:00:00Z");
+    const now = localTime(23, 0);
     await createStartCommand(deps(now)).run(["設計"], io);
 
     await expect(createStopCommand(deps(now)).run(["--at", "00:01"], io)).rejects.toThrow(
@@ -179,7 +188,7 @@ describe("stop --at", () => {
   });
 
   it("開始より前を指定して失敗しても、実行中のままにする", async () => {
-    const now = new Date("2026-08-12T23:00:00Z");
+    const now = localTime(23, 0);
     await createStartCommand(deps(now)).run(["設計"], io);
 
     // 失敗することは別のテストで確認済み。ここでは実行中が残るかだけを見る
@@ -196,6 +205,78 @@ describe("stop --at", () => {
     await expect(
       createStopCommand(deps(new Date("2026-08-12T10:00:00Z"))).run(["--at", "25:00"], io),
     ).rejects.toThrow(UserError);
+  });
+
+  it("未来の時刻を指定したら UserError で失敗する", async () => {
+    await createStartCommand(deps(localTime(8, 0))).run(["設計"], io);
+
+    await expect(
+      createStopCommand(deps(localTime(9, 0))).run(["--at", "09:30"], io),
+    ).rejects.toThrow(UserError);
+  });
+
+  it("未来を指定して失敗しても、実行中のままにする", async () => {
+    await createStartCommand(deps(localTime(8, 0))).run(["設計"], io);
+
+    await Promise.resolve(
+      createStopCommand(deps(localTime(9, 0))).run(["--at", "09:30"], io),
+    ).catch(() => undefined);
+
+    expect(await store.findRunning()).toBeDefined();
+  });
+});
+
+describe("stop の未知の引数", () => {
+  it.each([
+    ["サブコマンドのヘルプ", "--help"],
+    ["短縮形のヘルプ", "-h"],
+    ["未知のオプション", "--unknown"],
+    ["余分な位置引数", "余計な引数"],
+  ])("%s を渡したら UserError で失敗する", async (_label, token) => {
+    await startAt9();
+
+    await expect(
+      createStopCommand(deps(new Date("2026-08-12T10:00:00Z"))).run([token], io),
+    ).rejects.toThrow(UserError);
+  });
+
+  it("--help を渡しても実行中の作業を終了しない", async () => {
+    await startAt9();
+
+    await Promise.resolve(
+      createStopCommand(deps(new Date("2026-08-12T10:00:00Z"))).run(["--help"], io),
+    ).catch(() => undefined);
+
+    expect(await store.findRunning()).toBeDefined();
+  });
+
+  it("--note の値が別のオプションなら UserError で失敗する", async () => {
+    await createStartCommand(deps(localTime(8, 0))).run(["設計"], io);
+
+    await expect(
+      createStopCommand(deps(localTime(12, 0))).run(["--note", "--at", "10:00"], io),
+    ).rejects.toThrow(UserError);
+  });
+
+  it("--note の値が別のオプションだった場合、終了時刻を黙って now にしない", async () => {
+    await createStartCommand(deps(localTime(8, 0))).run(["設計"], io);
+
+    await Promise.resolve(
+      createStopCommand(deps(localTime(12, 0))).run(["--note", "--at", "10:00"], io),
+    ).catch(() => undefined);
+
+    expect(await store.findRunning()).toBeDefined();
+  });
+
+  it("--at と --note を両方渡すのは通る", async () => {
+    await createStartCommand(deps(localTime(8, 0))).run(["設計"], io);
+
+    await createStopCommand(deps(localTime(12, 0))).run(["--at", "10:15", "--note", "完了"], io);
+
+    const entry = (await store.listByRange(allTime))[0];
+
+    expect(entry?.end).toBe(localTime(10, 15).toISOString());
+    expect(entry?.note).toBe("完了");
   });
 });
 

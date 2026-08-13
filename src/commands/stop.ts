@@ -2,7 +2,7 @@ import { type Command, type CliIo, UserError } from "../cli.js";
 import { createEntry } from "../domain/entry.js";
 import { durationMs } from "../domain/period.js";
 import { formatDuration } from "../format/duration.js";
-import { type CommandDeps, resolveAt, takeOption } from "./args.js";
+import { type CommandDeps, rejectUnknownArgs, resolveAt, takeOption } from "./args.js";
 
 /**
  * 実行中の作業を終了する。
@@ -16,13 +16,20 @@ export function createStopCommand(deps: CommandDeps): Command {
     summary: "作業を終了する",
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
+      // 引数の検査を保存より先に済ませる。`tock stop --help` が使い方を見ようとして
+      // 打刻を終了してしまうのを防ぐ
+      const { value: note, rest } = takeOption(argv, "--note");
+      const { at, rest: remaining } = resolveAt(rest, deps.now());
+      rejectUnknownArgs(remaining, {
+        command: "stop",
+        allowedOptions: ["--at", "--note"],
+        allowPositional: false,
+      });
+
       const running = await deps.store.findRunning();
       if (running === undefined) {
         throw new UserError("実行中の作業がありません。tock start で開始してください");
       }
-
-      const { value: note, rest } = takeOption(argv, "--note");
-      const { at } = resolveAt(rest, deps.now());
 
       // createEntry は end < start を弾く。その失敗は打ち間違いなので UserError に translate し、
       // 保存はしない（実行中のまま残るので、正しい時刻で再実行できる）
