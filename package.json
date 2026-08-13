@@ -1,0 +1,27 @@
+{
+  "name": "tock",
+  "version": "0.1.0",
+  "description": "ローカル完結の作業時間トラッカー CLI",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "tock": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}
