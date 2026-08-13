@@ -1,0 +1,201 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { UserError } from "../../src/cli.js";
+import { createStartCommand } from "../../src/commands/start.js";
+import { createStopCommand } from "../../src/commands/stop.js";
+import { createJsonlStore } from "../../src/store/jsonl-store.js";
+import type { Store } from "../../src/store/store.js";
+
+let dir = "";
+let store: Store;
+let out: string[];
+let err: string[];
+let idCounter = 0;
+
+const io = {
+  out: (line: string): void => {
+    out.push(line);
+  },
+  err: (line: string): void => {
+    err.push(line);
+  },
+};
+
+/** 固定した現在時刻。テストが実行時刻に依存しないようにする。 */
+const NOW = new Date("2026-08-12T10:00:00Z");
+
+beforeEach(async () => {
+  dir = await mkdtemp(join(tmpdir(), "tock-start-"));
+  store = createJsonlStore(join(dir, "entries.jsonl"));
+  out = [];
+  err = [];
+  idCounter = 0;
+});
+
+afterEach(async () => {
+  await rm(dir, { recursive: true, force: true });
+});
+
+function deps(now: Date = NOW) {
+  return {
+    store,
+    now: () => now,
+    newId: () => {
+      idCounter += 1;
+      return `id-${String(idCounter)}`;
+    },
+  };
+}
+
+const allTime = {
+  start: new Date("2000-01-01T00:00:00Z"),
+  end: new Date("2100-01-01T00:00:00Z"),
+};
+
+describe("start", () => {
+  it("実行中のエントリを1件作る", async () => {
+    await createStartCommand(deps()).run(["設計"], io);
+
+    const entries = await store.listByRange(allTime);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.start).toBe("2026-08-12T10:00:00.000Z");
+    expect(entries[0]).not.toHaveProperty("end");
+  });
+
+  it("作業名を note として保存する", async () => {
+    await createStartCommand(deps()).run(["設計"], io);
+
+    expect((await store.listByRange(allTime))[0]?.note).toBe("設計");
+  });
+
+  it("#つきの語をタグとして取り出す", async () => {
+    await createStartCommand(deps()).run(["設計 #proj/loop-demo #会議"], io);
+
+    const entry = (await store.listByRange(allTime))[0];
+
+    expect(entry?.tags).toEqual(["proj/loop-demo", "会議"]);
+    expect(entry?.note).toBe("設計");
+  });
+
+  it("引数が複数に分かれていても1つの文字列として扱う", async () => {
+    await createStartCommand(deps()).run(["設計", "#work"], io);
+
+    const entry = (await store.listByRange(allTime))[0];
+
+    expect(entry?.note).toBe("設計");
+    expect(entry?.tags).toEqual(["work"]);
+  });
+
+  it("タグだけを渡しても開始できる（note なし）", async () => {
+    await createStartCommand(deps()).run(["#work"], io);
+
+    const entry = (await store.listByRange(allTime))[0];
+
+    expect(entry?.tags).toEqual(["work"]);
+    expect(entry).not.toHaveProperty("note");
+  });
+
+  it("引数なしでも開始できる（境界）", async () => {
+    await createStartCommand(deps()).run([], io);
+
+    const entry = (await store.listByRange(allTime))[0];
+
+    expect(entry?.tags).toEqual([]);
+    expect(entry).not.toHaveProperty("note");
+  });
+
+  it("同じタグを2回書いても1つになる", async () => {
+    await createStartCommand(deps()).run(["#work #work"], io);
+
+    expect((await store.listByRange(allTime))[0]?.tags).toEqual(["work"]);
+  });
+
+  it("`#` だけの語はタグにしない", async () => {
+    await createStartCommand(deps()).run(["設計 #"], io);
+
+    const entry = (await store.listByRange(allTime))[0];
+
+    expect(entry?.tags).toEqual([]);
+    expect(entry?.note).toBe("設計 #");
+  });
+
+  it("開始したことと時刻を stdout に出す", async () => {
+    await createStartCommand(deps()).run(["設計"], io);
+
+    expect(out.join("\n")).toContain("設計");
+    expect(err).toEqual([]);
+  });
+
+  it("すでに実行中なら UserError で失敗する（終了コード 1 になる）", async () => {
+    await createStartCommand(deps()).run(["1本目"], io);
+
+    await expect(createStartCommand(deps()).run(["2本目"], io)).rejects.toThrow(UserError);
+  });
+
+  it("二重 start でも1件しか保存されない", async () => {
+    await createStartCommand(deps()).run(["1本目"], io);
+    // 失敗することは別のテストで確認済み。ここでは保存件数だけを見る
+    await Promise.resolve(createStartCommand(deps()).run(["2本目"], io)).catch(() => undefined);
+
+    expect(await store.listByRange(allTime)).toHaveLength(1);
+  });
+
+  it("停止したあとなら再度 start できる", async () => {
+    const d = deps();
+    await createStartCommand(d).run(["1本目"], io);
+    await createStopCommand(d).run([], io);
+
+    await createStartCommand(d).run(["2本目"], io);
+
+    expect(await store.listByRange(allTime)).toHaveLength(2);
+  });
+});
+
+describe("start --at", () => {
+  it("指定した時刻を開始時刻として記録する", async () => {
+    await createStartCommand(deps()).run(["設計", "--at", "09:30"], io);
+
+    const entry = (await store.listByRange(allTime))[0];
+    const expected = new Date(NOW);
+    expected.setHours(9, 30, 0, 0);
+
+    expect(entry?.start).toBe(expected.toISOString());
+  });
+
+  it("秒まで指定できる", async () => {
+    await createStartCommand(deps()).run(["--at", "09:30:15"], io);
+
+    const entry = (await store.listByRange(allTime))[0];
+    const expected = new Date(NOW);
+    expected.setHours(9, 30, 15, 0);
+
+    expect(entry?.start).toBe(expected.toISOString());
+  });
+
+  it("--at はタグや作業名に混ざらない", async () => {
+    await createStartCommand(deps()).run(["設計 #work", "--at", "09:30"], io);
+
+    const entry = (await store.listByRange(allTime))[0];
+
+    expect(entry?.note).toBe("設計");
+    expect(entry?.tags).toEqual(["work"]);
+  });
+
+  it.each([
+    ["時が範囲外", "24:00"],
+    ["分が範囲外", "09:60"],
+    ["形式が違う", "9時30分"],
+    ["空文字", ""],
+    ["区切りがない", "0930"],
+  ])("--at が不正（%s）なら UserError で失敗する", async (_label, at) => {
+    await expect(createStartCommand(deps()).run(["--at", at], io)).rejects.toThrow(UserError);
+  });
+
+  it("--at の値が無い場合は UserError で失敗する", async () => {
+    await expect(createStartCommand(deps()).run(["--at"], io)).rejects.toThrow(UserError);
+  });
+});
