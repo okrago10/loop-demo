@@ -227,8 +227,15 @@ export function createJsonlStore(filePath: string): Store {
       return [...state.values()].filter((entry) => {
         const entryStart = Date.parse(entry.start);
 
-        // 実行中・0 分は幅を持たないため、開始が範囲内かで判定する
-        if (entry.end === undefined || entry.end === entry.start) {
+        // 実行中は終端が未定なので、開始以降ずっと続くものとして扱う。
+        // 開始が範囲の終わりより前なら重なる（#6 の overlaps と同じ扱い）。
+        // 前日から続く未停止の作業を当日の範囲から落とさないため、下限は見ない
+        if (entry.end === undefined) {
+          return entryStart < to;
+        }
+
+        // 0 分は半開区間では幅のない点なので、開始が範囲内かで判定する
+        if (entry.end === entry.start) {
           return entryStart >= from && entryStart < to;
         }
 

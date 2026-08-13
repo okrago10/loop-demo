@@ -324,6 +324,26 @@ describe("listByRange", () => {
     await expect(store.listByRange(range)).resolves.toEqual([running]);
   });
 
+  it("範囲より前に始まった実行中エントリも含める（前夜から続く作業）", async () => {
+    const running = entry("2026-08-11T22:00:00Z");
+    await store.append(running);
+
+    await expect(store.listByRange(range)).resolves.toEqual([running]);
+  });
+
+  it("実行中エントリは範囲開始と同時刻に始まっていても含める（境界）", async () => {
+    const running = entry("2026-08-12T00:00:00Z");
+    await store.append(running);
+
+    await expect(store.listByRange(range)).resolves.toEqual([running]);
+  });
+
+  it("実行中エントリが範囲終端と同時刻に始まったら含めない（境界）", async () => {
+    await store.append(entry("2026-08-13T00:00:00Z"));
+
+    await expect(store.listByRange(range)).resolves.toEqual([]);
+  });
+
   it("範囲より後に始まった実行中エントリは含めない", async () => {
     await store.append(entry("2026-08-20T00:00:00Z"));
 
