@@ -73,6 +73,26 @@ function storeWithFailingAppend(base: Store): Store {
 }
 
 /**
+ * 追記が失敗し、そのあとの巻き戻しも失敗するストア。
+ *
+ * 確定（`stopped` の update。`end` を持つ）は通し、**巻き戻し（`running` の update。
+ * `end` を持たない）だけを落とす。** 追記側の失敗が巻き戻しの例外に上書きされて
+ * 消えないことを確かめるために使う。
+ */
+function storeWithFailingAppendAndRollback(base: Store): Store {
+  return {
+    append: () => Promise.reject(new Error("追記が失敗しました")),
+    update: (entry) =>
+      entry.end === undefined
+        ? Promise.reject(new Error("巻き戻しが失敗しました"))
+        : base.update(entry),
+    delete: (id) => base.delete(id),
+    listByRange: (range) => base.listByRange(range),
+    findRunning: () => base.findRunning(),
+  };
+}
+
+/**
  * 確定（update）だけが必ず失敗するストア。
  *
  * 「追記を先にして確定を後にする」実装だと、追記が通ってから確定が落ちるため
@@ -365,5 +385,41 @@ describe("switch を続けて使う", () => {
 
     expect(running).toHaveLength(1);
     expect(running[0]?.note).toBe("3番目");
+  });
+});
+
+// 巻き戻しの失敗で追記側の失敗が消えると、本当の原因が追えなくなる
+describe("switch は巻き戻しにも失敗したとき、両方の原因を伝える", () => {
+  it("追記の失敗と巻き戻しの失敗の両方がメッセージに載る", async () => {
+    await createStartCommand(deps(local(9, 0), store)).run(["1本目 #work"], io);
+
+    await expect(
+      createSwitchCommand(deps(local(10, 30), storeWithFailingAppendAndRollback(store))).run(
+        ["次の作業"],
+        io,
+      ),
+    ).rejects.toThrow(/追記が失敗しました[\s\S]*巻き戻しが失敗しました/);
+  });
+
+  it("いま何が起きているかと復帰方法を伝える", async () => {
+    await createStartCommand(deps(local(9, 0), store)).run(["1本目 #work"], io);
+
+    await expect(
+      createSwitchCommand(deps(local(10, 30), storeWithFailingAppendAndRollback(store))).run(
+        ["次の作業"],
+        io,
+      ),
+    ).rejects.toThrow(/tock start/);
+  });
+
+  it("利用者起因ではないので UserError にしない（終了コード 2 のまま）", async () => {
+    await createStartCommand(deps(local(9, 0), store)).run(["1本目 #work"], io);
+
+    await expect(
+      createSwitchCommand(deps(local(10, 30), storeWithFailingAppendAndRollback(store))).run(
+        ["次の作業"],
+        io,
+      ),
+    ).rejects.not.toThrow(UserError);
   });
 });

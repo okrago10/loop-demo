@@ -76,10 +76,44 @@ async function save(
     await deps.store.append(next);
   } catch (error) {
     if (running !== undefined) {
-      await deps.store.update(running);
+      await rollback(deps, running, error);
     }
     throw error;
   }
+}
+
+/**
+ * 追記が落ちたあと、元の実行中エントリを書き戻す。
+ *
+ * **巻き戻しが失敗したときに、追記側の失敗を捨てない。** 素に `await` するだけだと
+ * 巻き戻しの例外が上に飛び、利用者には「巻き戻しが失敗しました」しか届かない。
+ * 本当の原因（追記が落ちた理由）が消えるため、何が起きたのか追えなくなる。
+ *
+ * この状態は DoD が避けたい形（前の作業は停止済み・新しい作業は無し）そのままなので、
+ * **今どうなっているかと、どう戻すか**もメッセージに入れる。書き込みを1回にまとめて
+ * この状態自体を作らない話は #11（ファイルロック）や #40（ストアの整理）の範囲。
+ */
+async function rollback(deps: CommandDeps, running: Entry, cause: unknown): Promise<void> {
+  try {
+    await deps.store.update(running);
+  } catch (rollbackError) {
+    throw new Error(
+      [
+        "切り替えに失敗し、元の状態への巻き戻しにも失敗しました。",
+        `追記の失敗: ${messageOf(cause)}`,
+        `巻き戻しの失敗: ${messageOf(rollbackError)}`,
+        `現在の状態: 前の作業は停止済みで、新しい作業は開始されていません`,
+        `復帰するには tock start で開始し直してください`,
+      ].join("\n"),
+      // 巻き戻し側の例外を cause に残す。追記側の失敗は本文に載せている
+      { cause: rollbackError },
+    );
+  }
+}
+
+/** 例外から利用者に見せるメッセージを取り出す。Error でない値を投げられても落ちない。 */
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**
