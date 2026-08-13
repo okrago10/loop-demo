@@ -8,8 +8,13 @@ import type { Store, StoreRange } from "./store.js";
  * ファイルに書く 1 行の形。
  *
  * 追記のみで状態を表すため、更新と削除も「操作の記録」として追記する。読み出し時に
- * 先頭から畳み込んで現在の状態を作る。既存行を書き換えないので、途中で異常終了しても
- * それまでの記録が壊れない。
+ * 先頭から畳み込んで現在の状態を作る。既存行を書き換えないので、**書き終わった行**は
+ * 途中で異常終了しても壊れない。
+ *
+ * ただし保証はそこまでで、**最後の 1 操作までは守れない**。追記の途中で落ちて行が
+ * 途中で切れると、次の追記がその欠けた行の後ろに続いてしまい、両方まとめて壊れた 1 行
+ * として飛ばされる。1 操作の原子性まで担保するなら追記ではなく別の書き込み方が必要で、
+ * それは #10 / #11 の担当範囲。
  */
 type StoreRecord =
   | { readonly op: "append"; readonly entry: Entry }
@@ -24,7 +29,17 @@ function asNonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value : undefined;
 }
 
-/** ISO 8601（UTC 正規形）として読めるかを確かめる。 */
+/**
+ * 日時として読めるかを確かめる。
+ *
+ * **`createEntry` より基準は緩い。** あちらはタイムゾーン付き ISO 8601 であることと、
+ * 暦としてその日が実在することまで見るが、ここは `Date.parse` が通るかだけを見る。
+ * つまり手で編集してタイムゾーンなしの日時を書いた行は、書き込み時より甘い基準で
+ * 通過する。
+ *
+ * ここでの役目は「壊れて読めない行を落とす」ことに限る。保存済みデータの妥当性を
+ * どこまで遡って保証するかは #10（スキーマバージョンとマイグレーション）の担当範囲。
+ */
 function asTimestamp(value: unknown): string | undefined {
   const text = asNonEmptyString(value);
   if (text === undefined || Number.isNaN(Date.parse(text))) {
