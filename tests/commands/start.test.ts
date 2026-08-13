@@ -128,13 +128,23 @@ describe("start", () => {
     expect((await store.listByRange(allTime))[0]?.tags).toEqual(["work"]);
   });
 
-  it("`#` だけの語はタグにしない", async () => {
-    await createStartCommand(deps()).run(["設計 #"], io);
+  // #13 では `#` だけの語を作業名の一部として扱っていたが、タグの意味は #8 の担当。
+  // 黙って作業名に混ぜると、タグを付けたつもりの記録が集計に出てこないまま気づけない
+  it("`#` だけの語は不正なタグとして UserError で失敗する", async () => {
+    await expect(createStartCommand(deps()).run(["設計 #"], io)).rejects.toThrow(UserError);
+  });
 
-    const entry = (await store.listByRange(allTime))[0];
+  it("不正なタグで失敗したときは何も保存しない", async () => {
+    // 例外を握りつぶさず UserError であることまで見る。別の例外で落ちていたら気づけるように
+    await expect(createStartCommand(deps()).run(["設計 #"], io)).rejects.toThrow(UserError);
 
-    expect(entry?.tags).toEqual([]);
-    expect(entry?.note).toBe("設計 #");
+    expect(await store.listByRange(allTime)).toHaveLength(0);
+  });
+
+  it("タグの表記は正規化される（大文字は小文字に統一）", async () => {
+    await createStartCommand(deps()).run(["設計 #Work #WORK"], io);
+
+    expect((await store.listByRange(allTime))[0]?.tags).toEqual(["work"]);
   });
 
   it("開始したことと時刻を stdout に出す", async () => {

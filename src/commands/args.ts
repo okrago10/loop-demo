@@ -1,4 +1,5 @@
 import { UserError } from "../cli.js";
+import { parseTags } from "../domain/tag.js";
 import type { Store } from "../store/store.js";
 
 /**
@@ -149,33 +150,20 @@ export function resolveAt(argv: readonly string[], now: Date): { at: Date; rest:
 /**
  * 入力文字列から作業名とタグを取り出す。
  *
- * **最小限の抽出しかしない。** 表記の正規化（大文字小文字の統一など）と階層タグの
- * 分解（`proj/loop-demo` を `proj` でも集計できるようにする）は #8 の担当範囲で、
- * ここで独自に実装すると二重になる。ここでは `#` で始まる語をタグとして分けるだけ。
+ * 解釈と正規化は `domain/tag.ts` が持つ。ここでは domain が投げるエラーを利用者向けの
+ * `UserError`（終了コード 1）に翻訳するだけにする。タグの表記を2箇所で決めると、
+ * 片方だけ直したときに集計と入力の解釈が食い違う。
  *
- * 重複するタグは1つにまとめる。同じタグを2回書いても集計が二重になっては困る。
+ * domain 側は `UserError` を知らない（`cli.ts` を参照すると依存の向きが逆になる）ため、
+ * 翻訳はこの層の責務になる。`stop` が `createEntry` のエラーを翻訳しているのと同じ形。
  */
 export function parseDescription(text: string): {
   tags: readonly string[];
   note: string | undefined;
 } {
-  const words = text.split(/\s+/).filter((word) => word !== "");
-  const tags: string[] = [];
-  const noteWords: string[] = [];
-
-  for (const word of words) {
-    // `#` だけの語はタグ名が空になるため、作業名の一部として扱う
-    if (word.startsWith("#") && word.length > 1) {
-      const tag = word.slice(1);
-      if (!tags.includes(tag)) {
-        tags.push(tag);
-      }
-      continue;
-    }
-    noteWords.push(word);
+  try {
+    return parseTags(text);
+  } catch (error) {
+    throw new UserError(error instanceof Error ? error.message : String(error));
   }
-
-  const note = noteWords.join(" ");
-
-  return { tags, note: note === "" ? undefined : note };
 }
