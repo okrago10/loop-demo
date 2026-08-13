@@ -2,7 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { checkUses, findPinningViolations } from "./action-pinning.js";
+import { checkUses, collectUses, findPinningViolations } from "./action-pinning.js";
 
 const WORKFLOW_DIR = ".github/workflows";
 
@@ -94,11 +94,44 @@ describe("ワークフローのテキストから uses を集める", () => {
   it("`uses` という語が別の文脈に出ても拾わない", () => {
     expect(findPinningViolations("      - run: echo 'this uses: something'")).toEqual([]);
   });
+
+  // `ci.yml` はリストの `-` が `name:` 側にあり、`uses:` 行には無い。この形を拾えないと
+  // 実ワークフローの走査が「1件も見ずに違反 0 件」で通ってしまう
+  it("リストの `-` が付かない uses も拾う", () => {
+    const workflow = ["      - name: チェックアウト", "        uses: third-party/action@v1"].join(
+      "\n",
+    );
+
+    expect(collectUses(workflow)).toEqual(["third-party/action@v1"]);
+    expect(findPinningViolations(workflow)).toHaveLength(1);
+  });
+
+  it("`-` あり・なしが混ざっていても両方拾う", () => {
+    const workflow = [
+      "      - uses: actions/checkout@v7",
+      "      - name: セットアップ",
+      "        uses: third-party/action@v1",
+    ].join("\n");
+
+    expect(collectUses(workflow)).toEqual(["actions/checkout@v7", "third-party/action@v1"]);
+  });
 });
 
 describe("実際のワークフローが方針に従っている", () => {
   it("ワークフローが1本以上ある（検査対象が消えていないこと）", async () => {
     expect(await workflowFiles()).not.toHaveLength(0);
+  });
+
+  // 違反 0 件だけを見ると、パーサが実ファイルの `uses:` を1件も拾わなくなっても通る。
+  // 「拾えている」ことを別のテストで固定してから、違反 0 件を見る
+  it("実ワークフローから uses を1件以上拾っている", async () => {
+    const found: string[] = [];
+
+    for (const file of await workflowFiles()) {
+      found.push(...collectUses(await readFile(join(WORKFLOW_DIR, file), "utf8")));
+    }
+
+    expect(found.length).toBeGreaterThan(0);
   });
 
   it("すべての uses が方針に従っている", async () => {

@@ -68,14 +68,20 @@ export function checkUses(uses: string): PinningViolation | undefined {
 }
 
 /**
- * ワークフローのテキストに含まれる `uses:` をすべて検査する。
+ * ワークフローのテキストに含まれる `uses:` の値をすべて取り出す。
  *
  * YAML として解析せず行単位で見るのは、依存を増やさないため（`CLAUDE.md` の
  * 「依存ライブラリの追加ルール」）。`uses:` は行頭側に現れる決まった形なので、
  * 行の先頭からの一致で十分に判別できる。
+ *
+ * **検査（`findPinningViolations`）と分けて公開しているのは、「1件も拾えていない」と
+ * 「拾ったが全部方針どおり」をテストから区別できるようにするため。** 違反の件数だけを
+ * 見ると、パーサが実ファイルの `uses:` を1件も拾わなくなっても違反 0 件で通ってしまう。
+ * 実際に `-` を必須にする改変（`ci.yml` は `-` が `name:` 側にあるため1件も拾えなくなる）
+ * を入れてもテストが落ちなかった。
  */
-export function findPinningViolations(workflow: string): PinningViolation[] {
-  const violations: PinningViolation[] = [];
+export function collectUses(workflow: string): string[] {
+  const found: string[] = [];
 
   for (const line of workflow.split("\n")) {
     const match = USES_LINE.exec(line);
@@ -83,7 +89,18 @@ export function findPinningViolations(workflow: string): PinningViolation[] {
       continue;
     }
 
-    const violation = checkUses(stripDecorations(match[1] ?? ""));
+    found.push(stripDecorations(match[1] ?? ""));
+  }
+
+  return found;
+}
+
+/** ワークフローのテキストに含まれる `uses:` をすべて検査する。 */
+export function findPinningViolations(workflow: string): PinningViolation[] {
+  const violations: PinningViolation[] = [];
+
+  for (const uses of collectUses(workflow)) {
+    const violation = checkUses(uses);
     if (violation !== undefined) {
       violations.push(violation);
     }
