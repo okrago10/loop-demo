@@ -1,5 +1,6 @@
 import { dayPeriodOf, parseDayPeriod } from "./day.js";
 import type { Period } from "./period.js";
+import { assertWeekStartsOn, DEFAULT_WEEK_STARTS_ON, weekPeriodOf } from "./week.js";
 
 /**
  * 期間の指定を1つの書き方に揃える。
@@ -13,9 +14,6 @@ import type { Period } from "./period.js";
  * 「終端の日の終わりまでを含む」は、翌日の 00:00 を `end` にすることで表す。
  * `2026-08-01..2026-08-07` なら 8/7 の 23:59 は含まれ、8/8 の 00:00 は含まれない。
  */
-
-/** 週の開始曜日の既定。ISO 8601 に合わせて月曜。設定で選べるようにするのは #22 の担当。 */
-const DEFAULT_WEEK_STARTS_ON = 1;
 
 /** 範囲の区切り。 */
 const RANGE_SEPARATOR = "..";
@@ -73,10 +71,10 @@ export function parsePeriodExpression(
       return dayPeriodOf(shiftDays(now, -1));
     }
     case "this-week": {
-      return weekPeriod(now, weekStartsOn, 0);
+      return weekPeriodOf(now, { weekStartsOn, offsetWeeks: 0 });
     }
     case "last-week": {
-      return weekPeriod(now, weekStartsOn, -1);
+      return weekPeriodOf(now, { weekStartsOn, offsetWeeks: -1 });
     }
     case "this-month": {
       return monthPeriod(now);
@@ -162,22 +160,6 @@ function relativeDaysPeriod(expression: string, digits: string, now: Date): Peri
   return { start: shiftDays(today.start, -(days - 1)), end: today.end };
 }
 
-/**
- * 週の期間。`offsetWeeks` が 0 なら今週、-1 なら先週。
- *
- * 週の初日は「基準日から、開始曜日までさかのぼった日」。曜日の差を7で正規化してから
- * 引くことで、開始曜日をどこに置いても同じ式で求まる。
- *
- * 00:00 への揃えは `dayPeriodOf`（`day.ts`）に任せる。同じ処理をここにも書くと、
- * #22 でタイムゾーンの扱いを変えたときに片方だけ古いまま残る。
- */
-function weekPeriod(now: Date, weekStartsOn: number, offsetWeeks: number): Period {
-  const backToStart = (now.getDay() - weekStartsOn + 7) % 7;
-  const start = dayPeriodOf(shiftDays(now, -backToStart + offsetWeeks * 7)).start;
-
-  return { start, end: shiftDays(start, 7) };
-}
-
 /** 月の期間。月初から翌月初まで。00:00 への揃えは `dayPeriodOf` に任せる。 */
 function monthPeriod(now: Date): Period {
   const start = dayPeriodOf(now).start;
@@ -196,14 +178,6 @@ function shiftDays(moment: Date, days: number): Date {
   shifted.setDate(shifted.getDate() + days);
 
   return shifted;
-}
-
-function assertWeekStartsOn(weekStartsOn: number): void {
-  if (!Number.isInteger(weekStartsOn) || weekStartsOn < 0 || weekStartsOn > 6) {
-    throw new Error(
-      `週の開始曜日は 0（日曜）〜6（土曜）で指定してください: ${String(weekStartsOn)}`,
-    );
-  }
 }
 
 /** 解釈できなかったときのエラー。候補を並べて、打ち直せるようにする。 */
