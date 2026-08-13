@@ -135,7 +135,8 @@ describe("start", () => {
   });
 
   it("不正なタグで失敗したときは何も保存しない", async () => {
-    await Promise.resolve(createStartCommand(deps()).run(["設計 #"], io)).catch(() => undefined);
+    // 例外を握りつぶさず UserError であることまで見る。別の例外で落ちていたら気づけるように
+    await expect(createStartCommand(deps()).run(["設計 #"], io)).rejects.toThrow(UserError);
 
     expect(await store.listByRange(allTime)).toHaveLength(0);
   });
