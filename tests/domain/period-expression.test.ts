@@ -180,6 +180,13 @@ describe("日付範囲", () => {
     expect(() => parsePeriodExpression("2026-08-07..2026-08-01", THURSDAY)).toThrow();
   });
 
+  it("区切りのまわりに空白があっても解釈する", () => {
+    // 引用符で囲んで `"2026-08-01 .. 2026-08-07"` と書く人がいる
+    expect(parsePeriodExpression("2026-08-01 .. 2026-08-07", THURSDAY)).toEqual(
+      parsePeriodExpression("2026-08-01..2026-08-07", THURSDAY),
+    );
+  });
+
   it.each([
     ["終端が不正", "2026-08-01..2026-02-30"],
     ["始端が不正", "2026-13-01..2026-08-07"],
@@ -240,6 +247,22 @@ describe("エラーメッセージ", () => {
     for (const candidate of ["today", "yesterday", "this-week", "last-week", "this-month", "-7d"]) {
       expect(message).toContain(candidate);
     }
+  });
+
+  it("日付の形をしている入力には、候補ではなく具体的な理由を返す", () => {
+    // 形式は合っているので「使える形式: ...」と並べても直し方が分からない
+    expect(() => parsePeriodExpression("2026-02-30", THURSDAY)).toThrow(/存在しない日付/);
+    expect(() => parsePeriodExpression("2026-02-30", THURSDAY)).not.toThrow(/使える形式/);
+  });
+
+  it("範囲の片側が実在しない日付でも、具体的な理由を返す", () => {
+    expect(() => parsePeriodExpression("2026-08-01..2026-02-30", THURSDAY)).toThrow(
+      /存在しない日付/,
+    );
+  });
+
+  it("日付の形すらしていない入力には候補を並べる", () => {
+    expect(() => parsePeriodExpression("nonsense", THURSDAY)).toThrow(/使える形式/);
   });
 
   it("日付の形式も候補に含まれる", () => {

@@ -23,6 +23,15 @@ const RANGE_SEPARATOR = "..";
 /** `-7d` 形式。日数は1以上の整数。 */
 const RELATIVE_DAYS = /^-(\d+)d$/;
 
+/**
+ * 日付らしい形かどうか。**妥当性の検査ではなく、エラーの選び分けに使う。**
+ *
+ * 実在するかの判定は `parseDayPeriod`（`day.ts`）が持つ。ここでは「日付として書こうと
+ * した入力か」だけを見て、具体的な理由を返すか候補を並べるかを決める。
+ * 範囲指定でも使うため、片側だけを渡して判定する。
+ */
+const DATE_SHAPED = /\d{4}-\d{1,2}-\d{1,2}/;
+
 /** エラーに載せる候補。利用者が打ち直せるよう、実際に使える形をそのまま並べる。 */
 const CANDIDATES = [
   "today",
@@ -91,15 +100,32 @@ function parseNonKeyword(expression: string, now: Date): Period {
 
   try {
     return parseDayPeriod(expression);
-  } catch {
-    throw unsupported(expression);
+  } catch (error) {
+    throw dateError(expression, error);
   }
+}
+
+/**
+ * 日付として読もうとして失敗したときのエラーを選ぶ。
+ *
+ * **日付の形をしている入力には、具体的な理由をそのまま返す。**
+ * `2026-02-30` に「使える形式: today / ...」と候補を並べても、形式は合っているので
+ * 直し方が分からない。「存在しない日付です」と言われたほうが早い。
+ *
+ * 形すらしていない入力（`nonsense`）には候補を並べる。こちらは何を書けばよいか
+ * 分かっていない状態なので、候補が答えになる。
+ */
+function dateError(expression: string, cause: unknown): Error {
+  return DATE_SHAPED.test(expression) && cause instanceof Error ? cause : unsupported(expression);
 }
 
 /**
  * `2026-08-01..2026-08-07` を解析する。
  *
  * 終端は「その日を含む」ので、終端の日の**翌日 00:00** を `end` にする。
+ *
+ * 両端は `trim` する。引用符で囲んで `"2026-08-01 .. 2026-08-07"` と書く人がいるため、
+ * 区切りのまわりの空白だけで弾かない。
  */
 function parseRange(expression: string): Period {
   const parts = expression.split(RANGE_SEPARATOR);
@@ -107,14 +133,14 @@ function parseRange(expression: string): Period {
     throw unsupported(expression);
   }
 
-  const [from, to] = parts;
+  const [from, to] = parts.map((part) => part.trim());
   let start: Period;
   let last: Period;
   try {
     start = parseDayPeriod(from ?? "");
     last = parseDayPeriod(to ?? "");
-  } catch {
-    throw unsupported(expression);
+  } catch (error) {
+    throw dateError(expression, error);
   }
 
   if (last.end.getTime() <= start.start.getTime()) {
@@ -141,17 +167,20 @@ function relativeDaysPeriod(expression: string, digits: string, now: Date): Peri
  *
  * 週の初日は「基準日から、開始曜日までさかのぼった日」。曜日の差を7で正規化してから
  * 引くことで、開始曜日をどこに置いても同じ式で求まる。
+ *
+ * 00:00 への揃えは `dayPeriodOf`（`day.ts`）に任せる。同じ処理をここにも書くと、
+ * #22 でタイムゾーンの扱いを変えたときに片方だけ古いまま残る。
  */
 function weekPeriod(now: Date, weekStartsOn: number, offsetWeeks: number): Period {
   const backToStart = (now.getDay() - weekStartsOn + 7) % 7;
-  const start = startOfDay(shiftDays(now, -backToStart + offsetWeeks * 7));
+  const start = dayPeriodOf(shiftDays(now, -backToStart + offsetWeeks * 7)).start;
 
   return { start, end: shiftDays(start, 7) };
 }
 
-/** 月の期間。月初から翌月初まで。 */
+/** 月の期間。月初から翌月初まで。00:00 への揃えは `dayPeriodOf` に任せる。 */
 function monthPeriod(now: Date): Period {
-  const start = startOfDay(now);
+  const start = dayPeriodOf(now).start;
   start.setDate(1);
 
   const end = new Date(start);
@@ -159,13 +188,6 @@ function monthPeriod(now: Date): Period {
   end.setMonth(end.getMonth() + 1);
 
   return { start, end };
-}
-
-function startOfDay(moment: Date): Date {
-  const start = new Date(moment);
-  start.setHours(0, 0, 0, 0);
-
-  return start;
 }
 
 /** 日付を足し引きする。月末・年末の繰り上がりは `setDate` に任せる。 */
