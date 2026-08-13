@@ -3,6 +3,7 @@ import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
+import { createLogCommand } from "./commands/log.js";
 import { createStartCommand } from "./commands/start.js";
 import { createStatusCommand } from "./commands/status.js";
 import { createStopCommand } from "./commands/stop.js";
@@ -167,6 +168,7 @@ function buildCommands(): readonly Command[] {
     createStatusCommand(deps),
     createTodayCommand(deps),
     createSummaryCommand(deps),
+    createLogCommand(deps),
   ];
 }
 
