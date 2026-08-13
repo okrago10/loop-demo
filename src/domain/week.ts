@@ -58,6 +58,17 @@ export function daysOfWeek(week: Period): Period[] {
     days.push(dayPeriodOf(shiftDays(week.start, index)));
   }
 
+  // 開始から7日を切り出すだけなので、7日でない期間（月・任意範囲）を渡されると
+  // end と中身が食い違う。黙ってずれた集計を返すより、渡し間違いとして落とす。
+  // 判定に経過ミリ秒を使わないのは、夏時間のある地域では1週間が 7×24h に
+  // ならないため（両端とも setDate で作るので、この比較なら影響を受けない）
+  const last = days.at(-1);
+  if (last === undefined || last.end.getTime() !== week.end.getTime()) {
+    throw new Error(
+      `daysOfWeek には7日ぶんの週を渡してください（週の初日から7日目の終わりが end と一致しません）`,
+    );
+  }
+
   return days;
 }
 

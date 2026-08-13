@@ -221,6 +221,30 @@ describe("week --offset", () => {
     },
   );
 
+  // Number() に任せると通ってしまう書き方。エラーメッセージの「整数」と受け付ける範囲を
+  // 一致させるため、十進の表記だけを許す
+  it.each([
+    ["16進数", "0x1"],
+    ["指数表記", "1e2"],
+    ["前後に空白", " -1 "],
+    ["先頭に 0", "-01"],
+    ["全角数字", "－１"],
+    ["区切り付き", "1_0"],
+  ])("--offset が十進の整数でない（%s）なら UserError で失敗する", async (_label, offset) => {
+    await expect(createWeekCommand(deps(NOW)).run(["--offset", offset], io)).rejects.toThrow(
+      UserError,
+    );
+  });
+
+  it("符号付きの十進は通る（境界: +1 と -1）", async () => {
+    await createWeekCommand(deps(NOW)).run(["--offset", "+1"], io);
+    expect(out[0]).toContain("2026-08-17");
+
+    out = [];
+    await createWeekCommand(deps(NOW)).run(["--offset", "-1"], io);
+    expect(out[0]).toContain("2026-08-03");
+  });
+
   it("--offset の値が無い場合は UserError で失敗する", async () => {
     await expect(createWeekCommand(deps(NOW)).run(["--offset"], io)).rejects.toThrow(UserError);
   });

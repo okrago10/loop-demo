@@ -207,4 +207,21 @@ describe("daysOfWeek", () => {
     expect(days[0]?.start).toEqual(local(2026, 8, 9));
     expect(days[0]?.start.getDay()).toBe(0);
   });
+
+  // 開始から7日を切り出すだけなので、7日でない期間を渡されると end と中身が食い違う。
+  // 黙ってずれた集計を返さないよう、渡し間違いとして落とすことを固定する
+  it.each([
+    ["1か月", local(2026, 8, 1), local(2026, 9, 1)],
+    ["1日", local(2026, 8, 10), local(2026, 8, 11)],
+    ["8日", local(2026, 8, 10), local(2026, 8, 18)],
+    ["6日", local(2026, 8, 10), local(2026, 8, 16)],
+  ])("7日でない期間（%s）を渡すと Error を投げる", (_label, start, end) => {
+    expect(() => daysOfWeek({ start, end })).toThrow();
+  });
+
+  it("weekPeriodOf が返した週はそのまま通る（開始曜日を変えても）", () => {
+    for (const weekStartsOn of [0, 1, 2, 3, 4, 5, 6]) {
+      expect(() => daysOfWeek(weekPeriodOf(THURSDAY, { weekStartsOn }))).not.toThrow();
+    }
+  });
 });
