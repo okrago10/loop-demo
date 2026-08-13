@@ -7,6 +7,7 @@ import { createStartCommand } from "./commands/start.js";
 import { createStatusCommand } from "./commands/status.js";
 import { createStopCommand } from "./commands/stop.js";
 import { createSummaryCommand, createTodayCommand } from "./commands/summary.js";
+import { createSwitchCommand } from "./commands/switch.js";
 import { randomId } from "./id.js";
 import { createJsonlStore } from "./store/jsonl-store.js";
 import { resolveStorePath } from "./store/store.js";
@@ -165,6 +166,7 @@ function buildCommands(): readonly Command[] {
     createStartCommand(deps),
     createStopCommand(deps),
     createStatusCommand(deps),
+    createSwitchCommand(deps),
     createTodayCommand(deps),
     createSummaryCommand(deps),
   ];
