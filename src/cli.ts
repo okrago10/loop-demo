@@ -1,7 +1,13 @@
 #!/usr/bin/env node
 import { realpathSync } from "node:fs";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
+import { createStartCommand } from "./commands/start.js";
+import { createStopCommand } from "./commands/stop.js";
+import { randomId } from "./id.js";
+import { createJsonlStore } from "./store/jsonl-store.js";
+import { resolveStorePath } from "./store/store.js";
 import { readVersion } from "./version.js";
 
 /** 正常終了。 */
@@ -141,11 +147,20 @@ export async function run(argv: readonly string[], deps: CliDeps): Promise<numbe
 }
 
 /**
- * 登録されているサブコマンド。
+ * 実際に使うサブコマンドを組み立てる。
  *
- * 実装は #13 以降で追加する。現時点では空なので `tock --help` はコマンドなしと表示する。
+ * 保存先の決定と現在時刻・採番の取得はここでだけ行う。`run` と各コマンドは注入された
+ * ものしか使わないので、テストは一時ディレクトリと固定した時刻で完全に再現できる。
  */
-const commands: readonly Command[] = [];
+function buildCommands(): readonly Command[] {
+  const deps = {
+    store: createJsonlStore(resolveStorePath(process.env, homedir())),
+    now: () => new Date(),
+    newId: randomId,
+  };
+
+  return [createStartCommand(deps), createStopCommand(deps)];
+}
 
 /**
  * このファイルがプロセスのエントリポイントとして起動されたかを判定する。
@@ -175,6 +190,6 @@ if (invokedAsEntryPoint()) {
       process.stderr.write(`${line}\n`);
     },
     version: readVersion,
-    commands,
+    commands: buildCommands(),
   });
 }
