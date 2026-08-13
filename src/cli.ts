@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { realpathSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-import { readVersion } from './version.js';
+import { readVersion } from "./version.js";
 
 /**
  * CLI が外の世界に触る部分。テストから差し替えられるよう引数で受け取る。
@@ -21,12 +21,12 @@ export interface CliDeps {
  * ここでは意図的に最小限に留めている。
  */
 export function run(argv: readonly string[], deps: CliDeps): number {
-  if (argv.includes('--version') || argv.includes('-v')) {
+  if (argv.includes("--version") || argv.includes("-v")) {
     deps.out(deps.version());
     return 0;
   }
 
-  deps.out('tock — 作業時間トラッカー');
+  deps.out("tock — 作業時間トラッカー");
   return 0;
 }
 
