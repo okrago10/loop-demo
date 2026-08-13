@@ -4,31 +4,148 @@ import { fileURLToPath } from "node:url";
 
 import { readVersion } from "./version.js";
 
+/** 正常終了。 */
+export const EXIT_OK = 0;
+
+/** ユーザー起因のエラー（コマンドの打ち間違い、入力の不備など）。 */
+export const EXIT_USAGE = 1;
+
+/** 内部エラー（想定していない例外）。 */
+export const EXIT_INTERNAL = 2;
+
 /**
- * CLI が外の世界に触る部分。テストから差し替えられるよう引数で受け取る。
+ * ユーザー起因のエラー。
+ *
+ * これを投げたコマンドは終了コード 1 になる。想定外の例外（終了コード 2）と
+ * 区別するために型を分ける。利用者に見せて意味のあるメッセージだけをここに入れる。
  */
-export interface CliDeps {
-  /** 1行を出力する。改行の付与は呼び出し側の責務にしない。 */
+export class UserError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UserError";
+  }
+}
+
+/** CLI の入出力。テストから差し替えられるよう引数で受け取る。 */
+export interface CliIo {
+  /** 通常の出力（stdout）。1行ずつ渡す。改行の付与は呼び出し側の責務にしない。 */
   readonly out: (line: string) => void;
+  /** エラーの出力（stderr）。 */
+  readonly err: (line: string) => void;
+}
+
+/**
+ * サブコマンド1つ分。
+ *
+ * 実装は `src/commands/` に置く（#13 以降）。ここでは器の契約だけを定める。
+ */
+export interface Command {
+  /** `tock <name>` で呼ばれる名前。 */
+  readonly name: string;
+  /** `--help` の一覧に出す1行説明。 */
+  readonly summary: string;
+  /**
+   * コマンド名より後ろの引数を受け取って実行する。
+   *
+   * ユーザー起因のエラーは `UserError` を投げる。それ以外の例外は内部エラーとして扱う。
+   */
+  run(argv: readonly string[], io: CliIo): void | Promise<void>;
+}
+
+export interface CliDeps extends CliIo {
   /** 自身のバージョンを返す。 */
   readonly version: () => string;
+  /** 登録されているサブコマンド。 */
+  readonly commands: readonly Command[];
+}
+
+const HELP_FLAGS = new Set(["--help", "-h"]);
+const VERSION_FLAGS = new Set(["--version", "-v"]);
+
+/** 使い方を組み立てる。出力先は呼び出し側が決める（ヘルプなら stdout、エラーなら stderr）。 */
+function usageLines(commands: readonly Command[]): string[] {
+  const lines = ["使い方: tock <command> [args]", "", "コマンド:"];
+
+  if (commands.length === 0) {
+    lines.push("  （利用できるコマンドはまだありません）");
+  } else {
+    const width = Math.max(...commands.map((command) => command.name.length));
+    for (const command of commands) {
+      lines.push(`  ${command.name.padEnd(width)}  ${command.summary}`);
+    }
+  }
+
+  lines.push("", "オプション:", "  -h, --help     この使い方を表示する");
+  lines.push("  -v, --version  バージョンを表示する");
+
+  return lines;
+}
+
+function writeAll(lines: readonly string[], write: (line: string) => void): void {
+  for (const line of lines) {
+    write(line);
+  }
+}
+
+/** 例外から利用者に見せるメッセージを取り出す。Error でない値を投げられても落ちない。 */
+function messageOf(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
 }
 
 /**
- * CLI の雛形。現時点では `--version` のみを扱う。
+ * CLI の入口。終了コードを返すだけで、`process.exit` は呼ばない。
  *
- * 本格的な引数パース・ヘルプ・終了コードの体系は #12 で入れるため、
- * ここでは意図的に最小限に留めている。
+ * 終了コードを返す形にしているのは、テストからプロセスを終わらせずに検証できるようにする
+ * ため。実際の終了はこのファイル末尾の起動部が行う。
+ *
+ * `Promise` を返すのは、以降のサブコマンドがファイル I/O を伴うため（#13 以降）。
  */
-export function run(argv: readonly string[], deps: CliDeps): number {
-  if (argv.includes("--version") || argv.includes("-v")) {
-    deps.out(deps.version());
-    return 0;
+export async function run(argv: readonly string[], deps: CliDeps): Promise<number> {
+  const [first, ...rest] = argv;
+
+  if (first === undefined) {
+    // コマンド未指定は打ち間違いではなく「何ができるか知りたい」と解釈する
+    writeAll(usageLines(deps.commands), deps.out);
+    return EXIT_OK;
   }
 
-  deps.out("tock — 作業時間トラッカー");
-  return 0;
+  if (HELP_FLAGS.has(first)) {
+    writeAll(usageLines(deps.commands), deps.out);
+    return EXIT_OK;
+  }
+
+  if (VERSION_FLAGS.has(first)) {
+    deps.out(deps.version());
+    return EXIT_OK;
+  }
+
+  const command = deps.commands.find((candidate) => candidate.name === first);
+  if (command === undefined) {
+    deps.err(`不明なコマンドです: ${first}`);
+    deps.err("");
+    writeAll(usageLines(deps.commands), deps.err);
+    return EXIT_USAGE;
+  }
+
+  try {
+    await command.run(rest, { out: deps.out, err: deps.err });
+    return EXIT_OK;
+  } catch (error) {
+    deps.err(messageOf(error));
+    return error instanceof UserError ? EXIT_USAGE : EXIT_INTERNAL;
+  }
 }
+
+/**
+ * 登録されているサブコマンド。
+ *
+ * 実装は #13 以降で追加する。現時点では空なので `tock --help` はコマンドなしと表示する。
+ */
+const commands: readonly Command[] = [];
 
 /**
  * このファイルがプロセスのエントリポイントとして起動されたかを判定する。
@@ -50,10 +167,14 @@ function invokedAsEntryPoint(): boolean {
 }
 
 if (invokedAsEntryPoint()) {
-  process.exitCode = run(process.argv.slice(2), {
+  process.exitCode = await run(process.argv.slice(2), {
     out: (line) => {
       process.stdout.write(`${line}\n`);
     },
+    err: (line) => {
+      process.stderr.write(`${line}\n`);
+    },
     version: readVersion,
+    commands,
   });
 }
