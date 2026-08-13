@@ -398,6 +398,30 @@ describe("期間での抽出と切り出し", () => {
     expect(clipToPeriod([e], period)).toEqual([]);
   });
 
+  it("期間より前に始まった実行中エントリは期間の全体に切り出す（前夜から止めていない作業）", () => {
+    const e = entry("2026-08-11T22:00:00Z");
+
+    expect(clipToPeriod([e], period)).toEqual([
+      {
+        entryId: e.id,
+        start: "2026-08-12T00:00:00.000Z",
+        end: "2026-08-13T00:00:00.000Z",
+        tags: [],
+      },
+    ]);
+  });
+
+  it("期間より何日も前に始まった実行中エントリでも、長さは期間の幅を超えない", () => {
+    const e = entry("2026-08-01T09:00:00Z");
+
+    const total = clipToPeriod([e], period).reduce(
+      (sum, s) => sum + (Date.parse(s.end) - Date.parse(s.start)),
+      0,
+    );
+
+    expect(total).toBe(periodEnd.getTime() - periodStart.getTime());
+  });
+
   it("実行中エントリは期間の終わりまでで切り出す", () => {
     const e = entry("2026-08-12T22:00:00Z");
 

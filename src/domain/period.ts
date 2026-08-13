@@ -1,4 +1,4 @@
-import type { Entry } from "./entry.js";
+import { endedAt, type Entry, startedAt } from "./entry.js";
 
 /**
  * エントリを時間で切り出した断片。
@@ -34,13 +34,17 @@ const MS_PER_DAY = 24 * 60 * MS_PER_MINUTE;
  * 区間はすべて半開区間 `[start, end)` として扱う。これは DoD の
  * 「端点が接するだけ（前の end と次の start が同時刻）は非重複」を満たすうえで、
  * 分割・切り出しにも一貫して使える唯一の解釈のため。
+ *
+ * ISO 文字列を自前で解釈せず `entry.ts` の変換関数を通す。あちらが
+ * 「計算するときは startedAt / endedAt で Date に変換して扱う」と定めているため、
+ * 時刻の読み取り方をモジュール間で一致させる。
  */
 function endMs(entry: Entry): number | undefined {
-  return entry.end === undefined ? undefined : Date.parse(entry.end);
+  return endedAt(entry)?.getTime();
 }
 
 function startMs(entry: Entry): number {
-  return Date.parse(entry.start);
+  return startedAt(entry).getTime();
 }
 
 /**
