@@ -412,3 +412,107 @@ describe("edit の結果は log に反映される", () => {
     expect(out[0]).not.toContain("設計");
   });
 });
+
+/**
+ * 日跨ぎの記録の編集。
+ *
+ * **`--at` では日跨ぎの記録は作れないが、実際に日付を跨いで作業すれば普通に作られる**
+ * （23:00 に `start`、翌 01:00 に `stop`）。`CLAUDE.md` の境界値チェックリストが挙げる
+ * 「23:00 開始で翌 01:00 終了」がこれに当たる。
+ */
+describe("edit と日跨ぎの記録", () => {
+  /** 実時間の経過で日跨ぎ記録を作る（--at を使わない）。 */
+  async function overnight(): Promise<string> {
+    await createStartCommand(deps(local(13, 23))).run(["夜間作業 #work"], io);
+    await createStopCommand(deps(local(14, 1))).run([], io);
+    out = [];
+
+    return (await store.listByRange(allTime)).at(-1)?.id ?? "";
+  }
+
+  it("終了時刻は終了日の側に載る（開始日に載せると直せない）", async () => {
+    const id = await overnight();
+
+    await createEditCommand(deps(local(14, 10))).run([id, "--end", "00:45"], io);
+
+    expect((await byId(id))?.end).toBe(local(14, 0, 45).toISOString());
+  });
+
+  it("開始時刻は開始日の側に載る", async () => {
+    const id = await overnight();
+
+    await createEditCommand(deps(local(14, 10))).run([id, "--start", "22:00"], io);
+
+    expect((await byId(id))?.start).toBe(local(13, 22).toISOString());
+  });
+
+  it("開始と終了を同時に直しても、それぞれの日付に載る", async () => {
+    const id = await overnight();
+
+    await createEditCommand(deps(local(14, 10))).run(
+      [id, "--start", "22:00", "--end", "02:00"],
+      io,
+    );
+
+    const edited = await byId(id);
+
+    expect(edited?.start).toBe(local(13, 22).toISOString());
+    expect(edited?.end).toBe(local(14, 2).toISOString());
+  });
+
+  it("日跨ぎのまま長さが正しく変わる", async () => {
+    const id = await overnight();
+
+    await createEditCommand(deps(local(14, 10))).run([id, "--end", "02:30"], io);
+    out = [];
+    await createLogCommand(deps(local(14, 10))).run([], io);
+
+    // 23:00 → 翌 02:30 は 3h 30m
+    expect(out[0]).toContain("3h 30m");
+  });
+
+  it("終了を開始より前にする編集は日跨ぎでも拒否される（境界）", async () => {
+    const id = await overnight();
+
+    // 終了日の 00:45 より前でも、開始（前日 23:00）より後なので通る。
+    // 逆に開始日側へ動かす指定はこの規則では書けない（下記の判断待ち）
+    await expect(
+      createEditCommand(deps(local(14, 10))).run([id, "--start", "23:30", "--end", "23:00"], io),
+    ).rejects.toThrow(UserError);
+  });
+});
+
+/** 日を跨いで実行中のままになっている記録（止め忘れ）。 */
+describe("edit と日跨ぎの実行中エントリ（終端がない）", () => {
+  async function runningOvernight(): Promise<string> {
+    await createStartCommand(deps(local(13, 23))).run(["止め忘れ #work"], io);
+    out = [];
+
+    return (await store.listByRange(allTime)).at(-1)?.id ?? "";
+  }
+
+  it("--end は now の日付に載る（開始日に載せると直せない）", async () => {
+    const id = await runningOvernight();
+
+    // 翌朝 08:00 に気づいて、01:00 で止めたことにする
+    await createEditCommand(deps(local(14, 8))).run([id, "--end", "01:00"], io);
+
+    expect((await byId(id))?.end).toBe(local(14, 1).toISOString());
+  });
+
+  it("停止した記録になる", async () => {
+    const id = await runningOvernight();
+
+    await createEditCommand(deps(local(14, 8))).run([id, "--end", "01:00"], io);
+
+    expect(await store.findRunning()).toBeUndefined();
+  });
+
+  it("開始時刻は開始日の側に載ったまま", async () => {
+    const id = await runningOvernight();
+
+    await createEditCommand(deps(local(14, 8))).run([id, "--start", "22:00"], io);
+
+    expect((await byId(id))?.start).toBe(local(13, 22).toISOString());
+  });
+});

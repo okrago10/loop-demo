@@ -1,7 +1,7 @@
 import { type CliIo, type Command, UserError } from "../cli.js";
 import { applyEdit, type EntryChanges, findOverlapping } from "../domain/edit.js";
 import type { Entry } from "../domain/entry.js";
-import { startedAt } from "../domain/entry.js";
+import { endedAt, startedAt } from "../domain/entry.js";
 import { normalizeTag } from "../domain/tag.js";
 import { type CommandDeps, rejectUnknownArgs, resolveClockTimeOn, takeOption } from "./args.js";
 import { findById, listAllEntries } from "./lookup.js";
@@ -13,9 +13,9 @@ import { findById, listAllEntries } from "./lookup.js";
  * tock edit <id> [--start HH:MM] [--end HH:MM] [--tags "a b"] [--note "..."]
  * ```
  *
- * **`--start` / `--end` はその記録自身の日付に適用する。** 今日の日付に当てると、
- * 前日の記録を直したつもりで今日へ移動してしまう。日付そのものを変える操作は
- * このコマンドに入れていない（下記）。
+ * **`--start` は記録の開始日、`--end` は記録の終了日に適用する。** 今日の日付に当てると、
+ * 前日の記録を直したつもりで今日へ移動してしまう。開始日に揃えると、日を跨いだ記録の
+ * 終了時刻が直せない（`endBaseDate` を参照）。日付そのものを変える操作は入れていない（下記）。
  *
  * **書き込む前に、失敗しうる検証をすべて済ませる。** 途中で弾かれても記録が変わらない
  * ようにするため。`switch`（#15）と同じ考え方。
@@ -58,14 +58,13 @@ export function createEditCommand(deps: CommandDeps): Command {
       }
 
       const now = deps.now();
-      const onDate = startedAt(target);
       const changes: EntryChanges = {
         ...(startValue === undefined
           ? {}
-          : { start: resolveClockTimeOn(startValue, onDate, now, "--start") }),
+          : { start: resolveClockTimeOn(startValue, startedAt(target), now, "--start") }),
         ...(endValue === undefined
           ? {}
-          : { end: resolveClockTimeOn(endValue, onDate, now, "--end") }),
+          : { end: resolveClockTimeOn(endValue, endBaseDate(target, now), now, "--end") }),
         ...(tagsValue === undefined ? {} : { tags: parseTagList(tagsValue) }),
         ...(noteValue === undefined ? {} : { note: noteValue }),
       };
@@ -85,6 +84,25 @@ export function createEditCommand(deps: CommandDeps): Command {
       io.out(`id: ${edited.id}`);
     },
   };
+}
+
+/**
+ * `--end` の `HH:MM` を載せる日付を決める。
+ *
+ * **`--start` は開始日、`--end` は終了日**に載せる。開始日に揃えると、**日を跨いだ記録の
+ * 終了時刻が直せない。** 23:00 開始・翌 01:00 終了の記録に `--end 00:45` と打つと、
+ * 開始日の 00:45（開始より前）になって拒否される。利用者が指したいのは翌日の 00:45 である。
+ * 日跨ぎの記録は `--at` では作れないが、**実際に日付を跨いで作業すれば普通に作られる。**
+ *
+ * 実行中の記録には終了日が無いので `now` の日付に載せる。実行中の終端は「今」なので、
+ * 置き換える値の日付として `now` が最も近い。開始日にすると、**日を跨いで実行中のまま
+ * になっている記録**（23:00 開始で翌朝まで止め忘れ）で同じ問題が起きる。
+ *
+ * **残る曖昧さ:** 日跨ぎの記録の終了を「開始と同じ日」に縮める操作（翌 01:00 → 前日 23:30）は
+ * この規則では書けない。日付を明示する指定が必要で、時刻の表記全体（#45）と揃えて決める話。
+ */
+function endBaseDate(entry: Entry, now: Date): Date {
+  return endedAt(entry) ?? now;
 }
 
 /**
