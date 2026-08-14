@@ -1,7 +1,8 @@
 import { type CliIo, type Command, UserError } from "../cli.js";
 import type { Entry } from "../domain/entry.js";
 import { type CommandDeps, rejectUnknownArgs, takeFlag } from "./args.js";
-import { findById, listAllEntries } from "./lookup.js";
+import { shortenId, shortIdLength } from "../domain/entry-id.js";
+import { listAllEntries, resolveEntry } from "./lookup.js";
 
 /**
  * 削除してよいかを尋ねる。
@@ -41,20 +42,22 @@ export function createRmCommand(deps: CommandDeps, confirm: Confirm): Command {
 
       // **消せるものかを先に確かめる。** 存在しない id で確認を出すと、
       // 「はい」と答えたのに失敗する流れになる
-      const target = findById(await listAllEntries(deps.store), id);
-      if (target === undefined) {
-        throw new UserError(`その id の記録がありません: ${id}`);
-      }
+      const entries = await listAllEntries(deps.store);
+      const target = resolveEntry(entries, id);
 
-      if (!skipConfirm && !(await confirm(`削除しますか: ${describe(target)}（id: ${id}）`))) {
+      // 打った文字列ではなく、引き当てた記録の短縮 id を見せる。接頭辞で指定したときに
+      // 「どれが消えるのか」が分かるようにする
+      const shown = shortenId(target.id, shortIdLength(entries.map((entry) => entry.id)));
+
+      if (!skipConfirm && !(await confirm(`削除しますか: ${describe(target)}（id: ${shown}）`))) {
         io.out("中止しました。削除していません");
         return;
       }
 
-      await deps.store.delete(id);
+      await deps.store.delete(target.id);
 
       io.out(`削除しました: ${describe(target)}`);
-      io.out(`id: ${id}`);
+      io.out(`id: ${shown}`);
     },
   };
 }
