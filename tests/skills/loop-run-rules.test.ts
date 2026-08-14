@@ -146,6 +146,22 @@ describe("並列依存の扱いが SKILL.md に書かれている（DoD）", () 
     expect(found).not.toHaveLength(0);
   });
 
+  // 1本だけ試して失敗を並列と読むと、最も深くない候補を置いたときに一直線を取りこぼす。
+  // 「候補を1本ずつ全部試す」が手順として書かれていることを固定する
+  it("候補を1本ずつすべて試す手順になっている", () => {
+    const base = section(skill, BASE_HEADING) ?? "";
+
+    expect(base).toContain("1本ずつ");
+    expect(base).toContain("どれも含まないなら並列");
+  });
+
+  // 「1ペアで一直線と誤判定」は一度直したのに、直し方が「候補1本を試す」だったため
+  // 逆向きの取りこぼし（最も深くない候補で失敗する）を作っていた。根拠を残しておかないと、
+  // 次に手順を短く書き直したときに同じ穴に戻る
+  it("最も深くない候補を試すと失敗することが書かれている", () => {
+    expect(section(skill, BASE_HEADING) ?? "").toContain("最も深くない");
+  });
+
   it("#13 のケースが例として書かれている（同じ判断を再現できる）", () => {
     expect(section(skill, BASE_HEADING) ?? "").toContain("#13");
   });
