@@ -4,8 +4,9 @@ import type { Entry } from "../domain/entry.js";
 import { endedAt, startedAt } from "../domain/entry.js";
 import { normalizeTag } from "../domain/tag.js";
 import { type CommandDeps, rejectUnknownArgs, resolveClockTimeOn, takeOption } from "./args.js";
-import { findById, listAllEntries } from "./lookup.js";
+import { shortenId, shortIdLength } from "../domain/entry-id.js";
 import type { CommandUsage } from "../format/help.js";
+import { listAllEntries, resolveEntry } from "./lookup.js";
 
 /**
  * 記録を修正する。
@@ -62,10 +63,7 @@ export function createEditCommand(deps: CommandDeps): Command {
       }
 
       const entries = await listAllEntries(deps.store);
-      const target = findById(entries, id);
-      if (target === undefined) {
-        throw new UserError(`その id の記録がありません: ${id}`);
-      }
+      const target = resolveEntry(entries, id);
 
       const now = deps.now();
       const changes: EntryChanges = {
@@ -84,14 +82,15 @@ export function createEditCommand(deps: CommandDeps): Command {
       const conflict = findOverlapping(edited, entries);
       if (conflict !== undefined) {
         throw new UserError(
-          `編集後の時間が別の記録と重なります: ${describe(conflict)}（id: ${conflict.id}）`,
+          `編集後の時間が別の記録と重なります: ${describe(conflict)}（id: ${shortenId(conflict.id, shortIdLength(entries.map((entry) => entry.id)))}）`,
         );
       }
 
       await deps.store.update(edited);
 
       io.out(`修正しました: ${describe(edited)}`);
-      io.out(`id: ${edited.id}`);
+      // 打った文字列ではなく、引き当てた記録の短縮 id を見せる（`log` の一覧と同じ表記）
+      io.out(`id: ${shortenId(edited.id, shortIdLength(entries.map((entry) => entry.id)))}`);
     },
   };
 }

@@ -3,11 +3,12 @@ import { selectLogRows } from "../domain/log.js";
 import { parsePeriodExpression } from "../domain/period-expression.js";
 import type { Period } from "../domain/period.js";
 import { normalizeTag } from "../domain/tag.js";
+import { shortIdLength } from "../domain/entry-id.js";
 import { formatLogLines } from "../format/log.js";
 import type { LoadConfig } from "../store/config-store.js";
 import { type CommandDeps, rejectUnknownArgs, takeOption } from "./args.js";
-import { ALL_TIME } from "./lookup.js";
 import type { CommandUsage } from "../format/help.js";
+import { ALL_TIME, listAllEntries } from "./lookup.js";
 
 /**
  * `--limit` を省略したときの件数。
@@ -70,14 +71,21 @@ export function createLogCommand(deps: CommandDeps, loadConfig: LoadConfig): Com
 
       const period = resolvePeriod(periodValue, now, config.weekStartsOn);
 
-      const entries = await deps.store.listByRange(period);
+      // **期間で絞らずに全件を読む。** 短縮 id の桁数は「保存されている全記録の中で
+      // 重複しない長さ」でなければならず、一覧に出る分だけでは決められない
+      // （期間の外の記録と先頭が同じだと、出した文字列で引けなくなる）。
+      // `listByRange` はどの範囲を渡してもファイル全体を読むので、読み込みは増えない。
+      // 期間での絞り込みは `selectLogRows` が行う
+      const entries = await listAllEntries(deps.store);
       const rows = selectLogRows(
         entries,
         { period, ...(tag === undefined ? {} : { tag }), limit },
         now,
       );
 
-      for (const line of formatLogLines(rows)) {
+      const idLength = shortIdLength(entries.map((entry) => entry.id));
+
+      for (const line of formatLogLines(rows, idLength)) {
         io.out(line);
       }
     },
