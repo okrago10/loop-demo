@@ -102,8 +102,29 @@ describe("lint / format のスクリプト", () => {
 });
 
 describe("check の構成", () => {
-  it("typecheck・lint・format:check・test の4段をすべて実行する", () => {
-    expect(referencedScriptNames()).toEqual(["typecheck", "lint", "format:check", "test"]);
+  it("typecheck・lint・format:check・build・test の5段をすべて実行する", () => {
+    expect(referencedScriptNames()).toEqual(["typecheck", "lint", "format:check", "build", "test"]);
+  });
+
+  it("build は test より前に置く（E2E がビルド済みの CLI を起動するため）", () => {
+    // E2E（tests/e2e/cli.test.ts）は `dist/cli.js` を子プロセスとして起動する。
+    // test より後にビルドすると、E2E は古い dist を検証することになる。
+    //
+    // **ビルドをテストの中で行わないのはこのため。** `tests/package-scripts.test.ts` は
+    // 各段を壊す確認のために `src/` へ一時ファイルを置くので、テスト実行中にビルドすると
+    // 並行して走った側が壊れたファイルを拾って落ちる（実際に落ちた）
+    const names = referencedScriptNames();
+
+    expect(names.indexOf("build")).toBeLessThan(names.indexOf("test"));
+  });
+
+  it("build は tsc でビルド設定を使う（typecheck とは別物）", () => {
+    // typecheck は --noEmit なので、declaration の生成など「出力するときだけ出る失敗」を
+    // 拾えない。check が build を通ることで、その差分も検証される
+    const build = scripts()["build"] ?? "";
+
+    expect(build).toMatch(/\btsc\b/);
+    expect(build).toContain("tsconfig.build.json");
   });
 
   it("解釈できない段がない（参照の取りこぼしを防ぐ）", () => {
