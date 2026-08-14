@@ -4,7 +4,6 @@ import { dirname } from "node:path";
 import {
   type Config,
   type ConfigResult,
-  DEFAULT_CONFIG,
   overrideFromEnv,
   parseConfigFile,
 } from "../domain/config.js";
@@ -20,7 +19,7 @@ export interface ConfigStore {
   readonly path: string;
   /** 設定を読む。**存在しない・壊れている場合も失敗させず、既定値と警告を返す。** */
   read(): Promise<ConfigResult>;
-  /** 設定を丸ごと書き換える。親ディレクトリが無ければ作る。 */
+  /** 知っているキーを更新する。**知らないキーは残す。** 親ディレクトリが無ければ作る。 */
   write(config: Config): Promise<void>;
 }
 
@@ -42,47 +41,74 @@ export function createJsonConfigStore(path: string): ConfigStore {
   /** 警告にファイルのパスを添える。どのファイルを直せばよいかが分からないと動けない。 */
   const locate = (warning: string): string => `設定ファイル（${path}）: ${warning}`;
 
+  /**
+   * ファイルの中身を `JSON.parse` した値と、読めなかった理由を返す。
+   *
+   * 読み出し（`read`）と書き込み（`write`）の両方が生の値を要る。`write` は**知らないキーを
+   * 残す**ために、いま何が書かれているかを知る必要がある。
+   */
+  async function readRaw(): Promise<{ raw: unknown; warnings: string[] }> {
+    let text: string;
+    try {
+      text = await readFile(path, "utf8");
+    } catch (error) {
+      if (isNotFound(error)) {
+        // 設定を書いていないのは異常ではないので、警告も出さない
+        return { raw: undefined, warnings: [] };
+      }
+
+      // 権限が無いなど、存在するのに読めない場合は黙って既定値に落とさない
+      return {
+        raw: undefined,
+        warnings: [locate(`読み込めません（${messageOf(error)}）。すべて既定値を使います`)],
+      };
+    }
+
+    try {
+      return { raw: JSON.parse(text), warnings: [] };
+    } catch {
+      return {
+        raw: undefined,
+        warnings: [locate("JSON として読めません。すべて既定値を使います")],
+      };
+    }
+  }
+
   return {
     path,
 
     async read(): Promise<ConfigResult> {
-      let text: string;
-      try {
-        text = await readFile(path, "utf8");
-      } catch (error) {
-        if (isNotFound(error)) {
-          // 設定を書いていないのは異常ではないので、警告も出さない
-          return { config: DEFAULT_CONFIG, warnings: [] };
-        }
-
-        // 権限が無いなど、存在するのに読めない場合は黙って既定値に落とさない
-        return {
-          config: DEFAULT_CONFIG,
-          warnings: [locate(`読み込めません（${messageOf(error)}）。すべて既定値を使います`)],
-        };
-      }
-
-      let raw: unknown;
-      try {
-        raw = JSON.parse(text);
-      } catch {
-        return {
-          config: DEFAULT_CONFIG,
-          warnings: [locate("JSON として読めません。すべて既定値を使います")],
-        };
-      }
-
+      const { raw, warnings } = await readRaw();
       const result = parseConfigFile(raw);
 
-      return { config: result.config, warnings: result.warnings.map(locate) };
+      return { config: result.config, warnings: [...warnings, ...result.warnings.map(locate)] };
     },
 
+    /**
+     * 設定を書き込む。**知らないキーは消さずに残す。**
+     *
+     * `Config` をそのまま書き出すと、いま解釈できないキーがファイルから消える。
+     * 設定項目は後から足していく前提（#63 / #64 / #65）なので、**新しい版が書いたキーを
+     * 古い版の `set` が消す**ことになる。手で足した書きかけの設定も同じように消える。
+     * 読み出し時に「知らないキーは読まない」と警告しているのに、書き込みが削除になるのは
+     * 説明と食い違う（レビューで指摘）。
+     *
+     * 既にある値の上に `Config` を重ねるので、**知っているキーだけが更新される**。
+     * ファイルが JSON として読めない場合だけは残しようがないため、`Config` だけを書く。
+     */
     async write(config: Config): Promise<void> {
+      const { raw } = await readRaw();
+      const merged = isRecordObject(raw) ? { ...raw, ...config } : { ...config };
+
       await mkdir(dirname(path), { recursive: true });
       // 末尾の改行を付けるのは、テキストとして扱う道具（diff・エディタ）と噛み合わせるため
-      await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+      await writeFile(path, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
     },
   };
+}
+
+function isRecordObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

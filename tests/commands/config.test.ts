@@ -229,3 +229,25 @@ describe("環境変数に隠される場合の注意（レビュー指摘）", (
     await expect(command().run(["set", "weekStartsOn", "05"], io)).rejects.toThrow(UserError);
   });
 });
+
+describe("set が知らないキーを消さない（レビュー指摘）", () => {
+  it("知らないキーを残したまま更新する", async () => {
+    await writeFile(path, JSON.stringify({ weekStartsOn: 1, timezone: "Asia/Tokyo" }), "utf8");
+
+    await command().run(["set", "weekStartsOn", "0"], io);
+
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
+      weekStartsOn: 0,
+      timezone: "Asia/Tokyo",
+    });
+  });
+
+  it("知らないキーの警告は「消しません」と伝える（実際に消さないことと揃える）", async () => {
+    await writeFile(path, JSON.stringify({ timezone: "Asia/Tokyo" }), "utf8");
+
+    await command().run(["get"], io);
+
+    expect(err).toHaveLength(1);
+    expect(err[0]).toContain("消しません");
+  });
+});

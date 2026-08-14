@@ -195,7 +195,8 @@ export function parseConfigFile(raw: unknown): ConfigResult {
   for (const key of Object.keys(raw)) {
     if (!isConfigKey(key)) {
       warnings.push(
-        `知らない設定キーは無視します: ${JSON.stringify(key)}（使えるキー: ${CONFIG_KEYS.join(" / ")}）`,
+        `知らない設定キーです: ${JSON.stringify(key)}（使えるキー: ${CONFIG_KEYS.join(" / ")}）。` +
+          `この版では読みませんが、設定ファイルからは消しません`,
       );
     }
   }

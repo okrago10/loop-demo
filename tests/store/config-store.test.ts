@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -199,5 +199,55 @@ describe("loadEffectiveConfig（優先順位・DoD）", () => {
 
     expect(config.weekStartsOn).toBe(3);
     expect(warnings).toHaveLength(1);
+  });
+});
+
+describe("書き込みが知らないキーを消さない（レビュー指摘）", () => {
+  it("知らないキーを残したまま、知っているキーだけを更新する", async () => {
+    await writeFile(
+      path,
+      JSON.stringify({ weekStartsOn: 1, timezone: "Asia/Tokyo", rounding: { unitMinutes: 15 } }),
+      "utf8",
+    );
+
+    await createJsonConfigStore(path).write({ weekStartsOn: 0 });
+
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
+      weekStartsOn: 0,
+      timezone: "Asia/Tokyo",
+      rounding: { unitMinutes: 15 },
+    });
+  });
+
+  it("設定項目が増えても、古い版が新しい版のキーを消さない", async () => {
+    // #63 / #64 / #65 で足すキーを、この版が知らない状態として置く
+    const store = createJsonConfigStore(path);
+    await writeFile(path, JSON.stringify({ timezone: "Asia/Tokyo" }), "utf8");
+
+    await store.write({ weekStartsOn: 6 });
+    await store.write({ weekStartsOn: 2 });
+
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
+      timezone: "Asia/Tokyo",
+      weekStartsOn: 2,
+    });
+  });
+
+  it("JSON として読めないファイルは残しようがないので、設定だけを書く", async () => {
+    await writeFile(path, "壊れています", "utf8");
+
+    await createJsonConfigStore(path).write({ weekStartsOn: 0 });
+
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ weekStartsOn: 0 });
+  });
+
+  it("知らないキーは読まない（値は既定のまま）が、警告は「消さない」と伝える", async () => {
+    await writeFile(path, JSON.stringify({ timezone: "Asia/Tokyo" }), "utf8");
+
+    const { config, warnings } = await createJsonConfigStore(path).read();
+
+    expect(config).toEqual(DEFAULT_CONFIG);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("消しません");
   });
 });

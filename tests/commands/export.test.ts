@@ -424,3 +424,29 @@ describe("export --period this-week と週の開始曜日の設定", () => {
     expect(err[0]).toContain("config.json");
   });
 });
+
+describe("引数の打ち間違いで設定ファイルを読まない（レビュー指摘）", () => {
+  function loadFrom(env: Readonly<Record<string, string | undefined>>): LoadConfig {
+    return () => loadEffectiveConfig(createJsonConfigStore(join(dir, "config.json")), env);
+  }
+
+  it("--format の打ち間違いでは、壊れた設定ファイルの警告が出ない", async () => {
+    await writeFile(join(dir, "config.json"), "壊れています", "utf8");
+
+    await expect(
+      createExportCommand(deps(NOW), loadFrom({})).run(["--format", "xml"], io),
+    ).rejects.toThrow(UserError);
+
+    expect(err).toEqual([]);
+  });
+
+  it("知らないオプションでも同じ", async () => {
+    await writeFile(join(dir, "config.json"), "壊れています", "utf8");
+
+    await expect(
+      createExportCommand(deps(NOW), loadFrom({})).run(["--format", "csv", "--limit", "3"], io),
+    ).rejects.toThrow(UserError);
+
+    expect(err).toEqual([]);
+  });
+});

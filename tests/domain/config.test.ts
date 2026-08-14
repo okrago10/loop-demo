@@ -247,3 +247,11 @@ describe("文字列の解釈が経路によって食い違わない", () => {
     expect(describeConfigKey("weekStartsOn")).toContain("6");
   });
 });
+
+describe("Config の形と CONFIG_KEYS が一致している", () => {
+  // config-store の write は `{ ...生の値, ...config }` で知らないキーを残す。
+  // Config に CONFIG_KEYS 以外のフィールドがあると、それが設定ファイルに混ざる
+  it("Config のフィールドは CONFIG_KEYS と過不足なく同じ", () => {
+    expect(Object.keys(DEFAULT_CONFIG).toSorted()).toEqual([...CONFIG_KEYS].toSorted());
+  });
+});

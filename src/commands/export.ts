@@ -50,8 +50,12 @@ export function createExportCommand(deps: CommandDeps, loadConfig: LoadConfig): 
         allowPositional: false,
       });
 
-      // 引数の検査をすべて済ませてから store に触る。打ち間違いのときに
-      // ファイルを読む必要はなく、失敗の理由も引数だけで決まる
+      // 引数の検査を済ませてからファイルに触る。打ち間違いのときに設定ファイルや記録を
+      // 読む必要はなく、失敗の理由も引数だけで決まる。
+      //
+      // **`--period` の解決だけは設定を読んだ後になる**（週の開始曜日に依存するため）。
+      // それ以外を先に片付けておけば、`--format` の打ち間違いで設定ファイルの警告が
+      // 先に出ることはない
       const format = resolveFormat(formatValue);
 
       const { config, warnings } = await loadConfig();
