@@ -5,6 +5,7 @@ import type { Period } from "../domain/period.js";
 import { normalizeTag } from "../domain/tag.js";
 import { formatLogLines } from "../format/log.js";
 import { type CommandDeps, rejectUnknownArgs, takeOption } from "./args.js";
+import { ALL_TIME } from "./lookup.js";
 
 /**
  * `--limit` を省略したときの件数。
@@ -17,19 +18,6 @@ const DEFAULT_LIMIT = 20;
 
 /** 十進の1以上の整数。先頭の `0`・符号・小数点・指数・空白をすべて許さない。 */
 const DECIMAL_POSITIVE_INTEGER = /^[1-9]\d*$/;
-
-/**
- * `--period` を省略したときの範囲。`Date` が表せる全範囲。
- *
- * `Store` には「全件返す」操作が無く、`listByRange` に範囲を渡すしかない。
- * 期間指定なしの `log` は「いつの記録でも新しい順に直近 N 件」なので、
- * 範囲で落とさないよう最大幅を渡す。
- *
- * **`export`（#23）も同じものを必要とするため公開している。** 書き写すと、
- * 片方だけ直したときに「一覧には出るが書き出されない」記録が生まれる。
- * この細工そのものは `Store` の制約への回避策で、**#57 で解消される**。
- */
-export const ALL_TIME: Period = { start: new Date(-8.64e15), end: new Date(8.64e15) };
 
 /**
  * 記録を新しい順に一覧表示する。

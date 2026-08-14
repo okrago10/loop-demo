@@ -5,7 +5,7 @@ import { parsePeriodExpression } from "../domain/period-expression.js";
 import type { Period } from "../domain/period.js";
 import { formatCsvLines, formatJsonLines } from "../format/export.js";
 import { type CommandDeps, rejectUnknownArgs, takeOption } from "./args.js";
-import { ALL_TIME } from "./log.js";
+import { ALL_TIME } from "./lookup.js";
 
 /** 書き出せる形式。 */
 const FORMATTERS = {
