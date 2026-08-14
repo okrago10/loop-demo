@@ -6,7 +6,6 @@ import type { Period } from "../domain/period.js";
 import { formatCsvLines, formatJsonLines } from "../format/export.js";
 import type { LoadConfig } from "../store/config-store.js";
 import { type CommandDeps, rejectUnknownArgs, takeOption } from "./args.js";
-import { ALL_TIME } from "./lookup.js";
 import type { CommandUsage } from "../format/help.js";
 
 /** 書き出せる形式。 */
@@ -72,7 +71,10 @@ export function createExportCommand(deps: CommandDeps, loadConfig: LoadConfig): 
 
       const period = resolvePeriod(periodValue, deps.now(), config.weekStartsOn);
 
-      const entries = await deps.store.listByRange(period);
+      // 期間の指定が無ければ全件。**あるときだけ store 側で絞る**——読み込む量が
+      // 減るのは範囲があるときだけで、無い場合に広い範囲を作る理由は無い（#57）
+      const entries =
+        period === undefined ? await deps.store.listAll() : await deps.store.listByRange(period);
 
       for (const line of FORMATTERS[format](selectExportEntries(entries, period))) {
         io.out(line);
@@ -112,9 +114,14 @@ function isFormat(value: string): value is Format {
  * **`this-week` / `last-week` は設定の週の開始曜日に従う**（`log` / `week` と同じ）。
  * 書き出しだけが別の「今週」を持つと、画面で見た範囲と書き出した範囲が食い違う。
  */
-function resolvePeriod(value: string | undefined, now: Date, weekStartsOn: number): Period {
+function resolvePeriod(
+  value: string | undefined,
+  now: Date,
+  weekStartsOn: number,
+): Period | undefined {
+  // 省略は「全期間」。範囲で表さず、絞らないことを値の無さで表す（#57）
   if (value === undefined) {
-    return ALL_TIME;
+    return undefined;
   }
 
   try {

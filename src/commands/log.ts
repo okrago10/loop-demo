@@ -8,7 +8,6 @@ import { formatLogLines } from "../format/log.js";
 import type { LoadConfig } from "../store/config-store.js";
 import { type CommandDeps, rejectUnknownArgs, takeOption } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
-import { ALL_TIME, listAllEntries } from "./lookup.js";
 
 /**
  * `--limit` を省略したときの件数。
@@ -76,10 +75,14 @@ export function createLogCommand(deps: CommandDeps, loadConfig: LoadConfig): Com
       // （期間の外の記録と先頭が同じだと、出した文字列で引けなくなる）。
       // `listByRange` はどの範囲を渡してもファイル全体を読むので、読み込みは増えない。
       // 期間での絞り込みは `selectLogRows` が行う
-      const entries = await listAllEntries(deps.store);
+      const entries = await deps.store.listAll();
       const rows = selectLogRows(
         entries,
-        { period, ...(tag === undefined ? {} : { tag }), limit },
+        {
+          ...(period === undefined ? {} : { period }),
+          ...(tag === undefined ? {} : { tag }),
+          limit,
+        },
         now,
       );
 
@@ -98,9 +101,14 @@ export function createLogCommand(deps: CommandDeps, loadConfig: LoadConfig): Com
  * **`this-week` / `last-week` は設定の週の開始曜日に従う。** `week` コマンドだけが設定を
  * 見て `log` が見ないと、同じ「今週」が2つの意味を持つ。
  */
-function resolvePeriod(value: string | undefined, now: Date, weekStartsOn: number): Period {
+function resolvePeriod(
+  value: string | undefined,
+  now: Date,
+  weekStartsOn: number,
+): Period | undefined {
+  // 省略は「全期間」。範囲で表さず、絞らないことを値の無さで表す（#57）
   if (value === undefined) {
-    return ALL_TIME;
+    return undefined;
   }
 
   try {
