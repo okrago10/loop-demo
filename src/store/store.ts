@@ -1,18 +1,22 @@
 import { join } from "node:path";
 
 import type { Entry } from "../domain/entry.js";
+import type { Period } from "../domain/period.js";
 
 /**
  * 列挙する時間の範囲。半開区間 `[start, end)` として扱う。
  *
- * `domain/period.ts` の `Period`（#6）と構造的に同じ形にしてあるため、そちらが
- * 入ったあとは変換なしでそのまま渡せる。store から domain の期間計算を参照すると
- * 依存の向きが逆になるため、型の共有はしていない。
+ * **`domain/period.ts` の `Period`（#6）そのもの。** 以前は同じ形の別の型として
+ * 定義していたが、同じ概念が2つあると片方だけ直したときに食い違う。実際に、重なりの
+ * 判定を store と domain で二重に持っていて解釈がずれ、実行中エントリを落とすバグを
+ * 出している（#40）。
+ *
+ * store → domain は正しい依存の向き。**この型を共有しないことの理由として PR #35 が
+ * 挙げていた「依存の向きが逆になる」は誤りだった**——store は元から `Entry` を domain
+ * から import している。名前は `StoreRange` のまま残す（store の API として読むときに
+ * 「列挙する範囲」だと分かるため）。
  */
-export interface StoreRange {
-  readonly start: Date;
-  readonly end: Date;
-}
+export type StoreRange = Period;
 
 /**
  * 記録の永続化。
