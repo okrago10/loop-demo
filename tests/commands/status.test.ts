@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { UserError } from "../../src/cli.js";
 import { createStartCommand } from "../../src/commands/start.js";
+import { createRmCommand } from "../../src/commands/rm.js";
 import { createStatusCommand } from "../../src/commands/status.js";
 import { createStopCommand } from "../../src/commands/stop.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
@@ -336,6 +337,31 @@ describe("開始時刻が未来の記録（DoD）", () => {
     await createStatusCommand(deps(NOW)).run(["--short"], io);
 
     expect(out).toEqual(["ちょうど #work 0s"]);
+  });
+
+  // **案内した直し方が実際に通ることを確かめる。** 最初は `tock edit` を案内していたが、
+  // edit は記録の日付を移せないので、日付ごと未来にずれた記録では「未来の時刻は指定
+  // できません」で弾かれ、同じ場所を回る（レビューで指摘され、実際に再現した）
+  it("案内どおり rm すれば直る", async () => {
+    await saveFutureRunning();
+
+    let message = "";
+    try {
+      await createStatusCommand(deps(NOW)).run([], io);
+    } catch (error) {
+      message = error instanceof Error ? error.message : "";
+    }
+
+    expect(message).toContain("tock rm");
+    expect(message).not.toContain("tock edit");
+
+    // 案内された操作をそのまま実行する
+    out = [];
+    await createRmCommand(deps(NOW), () => Promise.resolve(true)).run(["skewed", "--yes"], io);
+
+    out = [];
+    await createStatusCommand(deps(NOW)).run([], io);
+    expect(out).toEqual(["実行中の作業はありません。tock start で開始してください"]);
   });
 
   it("1ミリ秒でも未来なら弾く（境界）", async () => {

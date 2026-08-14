@@ -26,8 +26,18 @@ import { startedAt } from "../domain/entry.js";
  * 破らない（`cli.ts` は例外のメッセージを1回だけ stderr に渡すので、改行を含めなければ
  * 1行になる）。
  *
- * 直し方まで書くのは、利用者にできることが「記録を直す」しかないため。時計のずれは
- * 過ぎたことなので、`tock edit` で開始時刻を入れ直す以外に進む道がない。
+ * **案内する直し方は `rm`。`edit` ではない。** `tock edit --start HH:MM` は**記録の
+ * 開始日**に時刻を載せるだけで、日付は変えられない（`edit.ts` のコメントのとおり、
+ * 日付の移動は #45 待ち）。日付ごと未来にずれた記録に `edit --start` を使うと
+ * 「未来の時刻は指定できません」で弾かれ、同じ場所を回る。**実際に叩いて確認した。**
+ *
+ * ```
+ * $ tock edit skewed --start 09:00
+ * --start に未来の時刻は指定できません: 09:00（現在は 12:25:43）
+ * ```
+ *
+ * 時計のずれが**同じ日に収まっている**場合は `edit --start` でも直せるが、
+ * 日付ごとずれている場合は直せない。**どちらでも通る道**を案内する。
  */
 export function assertStartNotInFuture(entry: Entry, now: Date): void {
   const start = startedAt(entry);
@@ -37,6 +47,6 @@ export function assertStartNotInFuture(entry: Entry, now: Date): void {
 
   throw new UserError(
     `記録の開始時刻が未来です: ${entry.start}（現在は ${now.toISOString()}）。` +
-      `時計がずれていた可能性があります。tock edit で開始時刻を直してください`,
+      `時計がずれていた可能性があります。tock rm ${entry.id} で消してから打ち直してください`,
   );
 }
