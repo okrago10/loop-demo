@@ -1,0 +1,93 @@
+name: バックログ項目
+description: tock のバックログに積む作業を1件登録する
+title: "[E?-?][P?] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        このテンプレートは、**ループ（自動実行）が本文から必要な情報を推測せずに
+        読み取れる形**に揃えるためのものです。空欄にすると、実装側が他の Issue を
+        読んで境界を推測することになります。
+
+        - **受け入れ条件 (DoD) が唯一の完了定義です。** 目的やスコープの側に要件を
+          書くと、DoD と食い違ったときにどちらを実装すべきか判断できず、確認の往復が
+          増えます。
+        - **依存は Issue 番号で書いてください。** エピックID だけだとタイトル接頭辞との
+          突き合わせが必要になり、接頭辞が1文字違うと依存が無いものとして着手されます。
+        - タイトルは `[E?-?][P?] 要約` の形にしてください。エピックIDの採番表は #27 に
+          あります。**採番表から次の番号を取り、表に追記するところまでが1組の作業です。**
+  - type: textarea
+    id: purpose
+    attributes:
+      label: 目的
+      description: |
+        何のためにやるか。**要件は書かないでください**（要件は「受け入れ条件 (DoD)」に
+        書く）。
+      placeholder: 工数報告に使う丸めを、毎回オプションを打たずに設定で決められるようにする。
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: スコープ
+      description: |
+        やること。触るファイル・コマンドが分かっているなら書いてください。
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: スコープ外
+      description: |
+        やらないこと。**他の Issue に投げるものは Issue 番号を書いてください**
+        （例: `タイムゾーンの扱いは #64`）。無ければ「なし」と書いてください。
+      placeholder: |
+        - タイムゾーンの扱い（#64）
+        - 保存形式の変更（この Issue では表示だけを変える）
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: 依存
+      description: |
+        依存する Issue を **Issue 番号**で書いてください。エピックID だけで書かないで
+        ください。両方書く場合は `E2-1（#5）` の形にします。無ければ「なし」。
+      placeholder: E6-1（#22）, E6-2（#23）
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: 受け入れ条件 (DoD)
+      description: |
+        **これがこの Issue の唯一の完了定義です。** ここに書かれていないことは完了条件に
+        なりません。テストに落とせる形で、チェックリストとして書いてください。
+      placeholder: |
+        - [ ] 設定した丸めが `summary` の出力に反映されるテストがある
+        - [ ] 記録が0件でも落ちないテストがある
+    validations:
+      required: true
+  - type: textarea
+    id: tech-constraints
+    attributes:
+      label: 技術選定の希望・制約
+      description: |
+        使ってほしい／避けてほしいライブラリやツール、既存の実装との整合など。
+        **空欄なら実装側の判断でよい**という意味になります。
+    validations:
+      required: false
+  - type: textarea
+    id: boundary-values
+    attributes:
+      label: テストで固定すべき境界値
+      description: |
+        Issue の側から指定したい境界値。空欄でも、実装側は `CLAUDE.md`「境界値の
+        チェックリスト」を上から確認します。
+      placeholder: |
+        - 記録が0件
+        - 前の end と次の start が一致する
+        - 23:00 開始で翌 01:00 終了
+        - `end` を持たない実行中エントリ
+    validations:
+      required: false
