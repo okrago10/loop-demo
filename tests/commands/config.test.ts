@@ -192,3 +192,40 @@ describe("config set", () => {
     expect(err).toHaveLength(1);
   });
 });
+
+describe("環境変数に隠される場合の注意（レビュー指摘）", () => {
+  it("環境変数の値が不正なら注意を出さない（実際にはファイルの値が効く）", async () => {
+    await command({ TOCK_WEEK_STARTS_ON: "月曜" }).run(["set", "weekStartsOn", "0"], io);
+
+    expect(err).toEqual([]);
+
+    // 実効値もファイルの値になっている（注意を出さないことと辻褄が合う）
+    out = [];
+    err = [];
+    await command({ TOCK_WEEK_STARTS_ON: "月曜" }).run(["get", "weekStartsOn"], io);
+    expect(out).toEqual(["0"]);
+    expect(err).toHaveLength(1);
+    expect(err[0]).toContain("無視します");
+  });
+
+  it("環境変数が書き込んだ値と同じなら注意を出さない（隠れていない）", async () => {
+    await command({ TOCK_WEEK_STARTS_ON: "0" }).run(["set", "weekStartsOn", "0"], io);
+
+    expect(err).toEqual([]);
+  });
+
+  it("環境変数が別の妥当な値なら、実効値を添えて注意する", async () => {
+    await command({ TOCK_WEEK_STARTS_ON: "5" }).run(["set", "weekStartsOn", "0"], io);
+
+    expect(err).toHaveLength(1);
+    expect(err[0]).toContain("TOCK_WEEK_STARTS_ON");
+    expect(err[0]).toContain("5");
+  });
+
+  it("先頭ゼロの環境変数は不正なので注意を出さない（判定が config set と揃っている）", async () => {
+    await command({ TOCK_WEEK_STARTS_ON: "05" }).run(["set", "weekStartsOn", "0"], io);
+
+    expect(err).toEqual([]);
+    await expect(command().run(["set", "weekStartsOn", "05"], io)).rejects.toThrow(UserError);
+  });
+});

@@ -4,10 +4,12 @@ import {
   assertConfigKey,
   CONFIG_KEYS,
   DEFAULT_CONFIG,
+  describeConfigKey,
   envNameOf,
   formatConfigValue,
   overrideFromEnv,
   parseConfigFile,
+  parseConfigText,
   withConfigValue,
 } from "../../src/domain/config.js";
 import { DEFAULT_WEEK_STARTS_ON } from "../../src/domain/week.js";
@@ -139,7 +141,8 @@ describe("overrideFromEnv（優先順位: 環境変数 > 設定ファイル）",
     expect(warnings[0]).toContain("TOCK_WEEK_STARTS_ON");
   });
 
-  it("十進の整数だけを受け付ける（0x6 や 1e0 を通さない）", () => {
+  it("十進の整数だけを受け付ける（0x6 や 1e0 や先頭ゼロを通さない）", () => {
+    expect(overrideFromEnv(fromFile, { TOCK_WEEK_STARTS_ON: "06" }).config.weekStartsOn).toBe(0);
     expect(overrideFromEnv(fromFile, { TOCK_WEEK_STARTS_ON: "0x6" }).config.weekStartsOn).toBe(0);
     expect(overrideFromEnv(fromFile, { TOCK_WEEK_STARTS_ON: "1e0" }).config.weekStartsOn).toBe(0);
     expect(overrideFromEnv(fromFile, { TOCK_WEEK_STARTS_ON: " 6 " }).config.weekStartsOn).toBe(0);
@@ -203,5 +206,44 @@ describe("withConfigValue / formatConfigValue", () => {
     const config = withConfigValue(DEFAULT_CONFIG, "weekStartsOn", "6");
 
     expect(formatConfigValue(config, "weekStartsOn")).toBe("6");
+  });
+});
+
+describe("文字列の解釈が経路によって食い違わない", () => {
+  // 週の開始曜日は 環境変数 / config set / --week-starts-on の3経路で文字列として渡る。
+  // 当初は --week-starts-on だけ1桁に限っていたため、`00` が経路によって通ったり
+  // 弾かれたりしていた（レビューで指摘）
+  const accepted = ["0", "1", "6"];
+  const rejected = ["00", "06", "7", "-1", "1.5", "0x6", "1e0", " 3 ", "", "月曜"];
+
+  it("受け付ける文字列は parseConfigText で1つに決まる", () => {
+    for (const text of accepted) {
+      expect(parseConfigText("weekStartsOn", text)).toBe(Number(text));
+    }
+  });
+
+  it("弾く文字列も parseConfigText で1つに決まる（先頭ゼロを含む）", () => {
+    for (const text of rejected) {
+      expect(parseConfigText("weekStartsOn", text)).toBeUndefined();
+    }
+  });
+
+  it("環境変数と config set が同じ判定になる", () => {
+    for (const text of rejected) {
+      expect(
+        overrideFromEnv(
+          { config: { weekStartsOn: 4 }, warnings: [] },
+          {
+            TOCK_WEEK_STARTS_ON: text,
+          },
+        ).config.weekStartsOn,
+      ).toBe(4);
+      expect(() => withConfigValue(DEFAULT_CONFIG, "weekStartsOn", text)).toThrow();
+    }
+  });
+
+  it("キーに書ける値の説明も1箇所から取る", () => {
+    expect(describeConfigKey("weekStartsOn")).toContain("0");
+    expect(describeConfigKey("weekStartsOn")).toContain("6");
   });
 });

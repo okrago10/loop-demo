@@ -41,11 +41,21 @@ export interface ConfigResult {
   readonly warnings: readonly string[];
 }
 
-/** 十進の整数だけ。`0x6`・`1e0`・前後の空白・符号を通さない。 */
-const DECIMAL_INTEGER = /^\d+$/;
+/**
+ * 十進の整数だけ。`0x6`・`1e0`・前後の空白・符号・先頭の余分な `0` を通さない。
+ *
+ * 先頭ゼロを弾くのは `--limit`（#16）や `--offset`（#19）と同じ理由で、`00` を
+ * 受け付けると「整数で指定してください」という説明と実際に通る範囲が食い違うため。
+ */
+const DECIMAL_INTEGER = /^(0|[1-9]\d*)$/;
 
-/** そのキーに書ける値の説明。エラーと警告の両方で使うので1箇所に持つ。 */
-function describeKey(key: ConfigKey): string {
+/**
+ * そのキーに書ける値の説明。エラーと警告の両方で使うので1箇所に持つ。
+ *
+ * コマンドラインオプション（`--week-starts-on`）のエラーからも使うため公開している。
+ * 経路ごとに文言を書くと、同じ値を拒否したのに説明が食い違う。
+ */
+export function describeConfigKey(key: ConfigKey): string {
   switch (key) {
     case "weekStartsOn": {
       return "0（日曜）〜6（土曜）の整数";
@@ -74,10 +84,13 @@ function fromJson(key: ConfigKey, value: unknown): number | undefined {
 /**
  * 文字列で書かれた値を検査する。書けない値なら `undefined`。
  *
- * 環境変数と `config set` はどちらも文字列で値を受け取るので、同じ関数を通す。
- * 片方だけ緩いと、`config set` で拒否された値が環境変数からは通ってしまう。
+ * **文字列から値を取る経路はすべてこれを通す。** 環境変数・`config set`・
+ * コマンドラインオプション（`--week-starts-on`）の3つがあり、どれか1つでも独自に
+ * 検査すると、同じ値が経路によって通ったり通らなかったりする。実際に、
+ * オプションだけ1桁に限っていたため `00` が環境変数からは通ってオプションからは
+ * 弾かれていた（レビューで指摘）。
  */
-function fromText(key: ConfigKey, text: string): number | undefined {
+export function parseConfigText(key: ConfigKey, text: string): number | undefined {
   switch (key) {
     case "weekStartsOn": {
       return DECIMAL_INTEGER.test(text) && isWeekStartsOn(Number(text)) ? Number(text) : undefined;
@@ -195,7 +208,7 @@ export function parseConfigFile(raw: unknown): ConfigResult {
     const value = fromJson(key, raw[key]);
     if (value === undefined) {
       warnings.push(
-        `${key} の値が不正です: ${JSON.stringify(raw[key])}（${describeKey(key)}）。` +
+        `${key} の値が不正です: ${JSON.stringify(raw[key])}（${describeConfigKey(key)}）。` +
           `既定値 ${formatConfigValue(DEFAULT_CONFIG, key)} を使います`,
       );
       continue;
@@ -233,10 +246,10 @@ export function overrideFromEnv(
       continue;
     }
 
-    const value = fromText(key, text);
+    const value = parseConfigText(key, text);
     if (value === undefined) {
       warnings.push(
-        `環境変数 ${name} の値が不正です: ${JSON.stringify(text)}（${describeKey(key)}）。無視します`,
+        `環境変数 ${name} の値が不正です: ${JSON.stringify(text)}（${describeConfigKey(key)}）。無視します`,
       );
       continue;
     }
@@ -255,9 +268,11 @@ export function overrideFromEnv(
  * 食い違う。
  */
 export function withConfigValue(config: Config, key: ConfigKey, text: string): Config {
-  const value = fromText(key, text);
+  const value = parseConfigText(key, text);
   if (value === undefined) {
-    throw new Error(`${key} には ${describeKey(key)} を指定してください: ${JSON.stringify(text)}`);
+    throw new Error(
+      `${key} には${describeConfigKey(key)}を指定してください: ${JSON.stringify(text)}`,
+    );
   }
 
   return withValue(config, key, value);

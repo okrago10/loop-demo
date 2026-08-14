@@ -8,7 +8,7 @@ import { createStartCommand } from "../../src/commands/start.js";
 import { createStopCommand } from "../../src/commands/stop.js";
 import { createWeekCommand } from "../../src/commands/week.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
-import { DEFAULT_CONFIG } from "../../src/domain/config.js";
+import { DEFAULT_CONFIG, describeConfigKey } from "../../src/domain/config.js";
 import {
   createJsonConfigStore,
   type LoadConfig,
@@ -396,5 +396,32 @@ describe("週の開始曜日の優先順位（DoD）", () => {
 
     expect(mondayWeek).not.toContain("work");
     expect(sundayWeek).toContain("work");
+  });
+});
+
+describe("--week-starts-on の判定が他の経路と揃っている（レビュー指摘）", () => {
+  function loadFrom(env: Readonly<Record<string, string | undefined>>): LoadConfig {
+    return () => loadEffectiveConfig(createJsonConfigStore(join(dir, "config.json")), env);
+  }
+
+  it("先頭ゼロはオプションでも環境変数でも弾く", async () => {
+    await expect(
+      createWeekCommand(deps(local(13, 12)), loadFrom({})).run(["--week-starts-on", "00"], io),
+    ).rejects.toThrow(UserError);
+
+    // 環境変数側も同じく弾かれ、既定（月曜始まり）のままになる
+    out = [];
+    await createWeekCommand(deps(local(13, 12)), loadFrom({ TOCK_WEEK_STARTS_ON: "00" })).run(
+      [],
+      io,
+    );
+    expect(out[0]).toContain("2026-08-10");
+    expect(err).toHaveLength(1);
+  });
+
+  it("エラーの文言は設定キーの説明から作る（経路ごとに書き分けない）", async () => {
+    await expect(
+      createWeekCommand(deps(local(13, 12)), loadFrom({})).run(["--week-starts-on", "9"], io),
+    ).rejects.toThrow(new RegExp(describeConfigKey("weekStartsOn")));
   });
 });

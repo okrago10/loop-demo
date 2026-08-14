@@ -1,4 +1,5 @@
 import { type CliIo, type Command, UserError } from "../cli.js";
+import { describeConfigKey, parseConfigText } from "../domain/config.js";
 import { summarizeWeek } from "../domain/week-summary.js";
 import { weekPeriodOf } from "../domain/week.js";
 import { formatWeekLines } from "../format/week.js";
@@ -83,6 +84,10 @@ function resolveOffset(value: string | undefined): number {
 /**
  * `--week-starts-on` の解決。省略時は `undefined`（設定に委ねる）。
  *
+ * **検査は `parseConfigText` に任せる。** 同じ「週の開始曜日」を、環境変数・`config set`・
+ * このオプションの3経路で受け取るので、ここだけ独自に判定すると通る値が食い違う
+ * （当初は1桁に限っていたため `00` がオプションからだけ弾かれていた）。
+ *
  * 範囲の検査は `weekPeriodOf` も行うが、そちらの `Error` は内部エラー（終了コード 2）に
  * なる。打ち間違いは利用者起因なので、ここで `UserError` に翻訳しておく。
  */
@@ -90,11 +95,13 @@ function resolveWeekStartsOn(value: string | undefined): number | undefined {
   if (value === undefined) {
     return undefined;
   }
-  if (!/^\d$/.test(value) || Number(value) > 6) {
+
+  const parsed = parseConfigText("weekStartsOn", value);
+  if (parsed === undefined) {
     throw new UserError(
-      `--week-starts-on は 0（日曜）〜6（土曜）で指定してください: ${JSON.stringify(value)}`,
+      `--week-starts-on には${describeConfigKey("weekStartsOn")}を指定してください: ${JSON.stringify(value)}`,
     );
   }
 
-  return Number(value);
+  return parsed;
 }

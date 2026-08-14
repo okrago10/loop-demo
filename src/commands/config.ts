@@ -1,10 +1,12 @@
 import { type CliIo, type Command, UserError } from "../cli.js";
 import {
   assertConfigKey,
+  type Config,
   type ConfigKey,
   CONFIG_KEYS,
   envNameOf,
   formatConfigValue,
+  overrideFromEnv,
   withConfigValue,
 } from "../domain/config.js";
 import { type ConfigStore, loadEffectiveConfig } from "../store/config-store.js";
@@ -112,7 +114,7 @@ async function runSet(
   io.out(`設定しました: ${key}=${formatConfigValue(updated, key)}`);
   io.out(store.path);
 
-  warnIfMaskedByEnv(key, env, io);
+  warnIfMaskedByEnv(updated, key, env, io);
 }
 
 /**
@@ -120,19 +122,30 @@ async function runSet(
  *
  * 環境変数のほうが優先されるので、`set` は成功しているのに `get` の結果が変わらない。
  * 気づく手掛かりがないと、設定ファイルを何度も書き直すことになる。
+ *
+ * **「環境変数がある」ではなく「実際に値が変わる」ことを条件にする。** 環境変数の値が
+ * 不正なら `overrideFromEnv` はそれを無視してファイルの値を使うので、変数があるだけで
+ * 「効きません」と出すのは事実と食い違う（レビューで指摘。`get` 側は「値が不正です。
+ * 無視します」と出るため、同じ状況で説明が割れていた）。
+ *
+ * 判定を自前で書かず `overrideFromEnv` に通した結果と比べるのは、優先順位の規則を
+ * 2箇所に持たないため。書き写すと、片方だけ直したときに注意の出方がずれる。
  */
 function warnIfMaskedByEnv(
+  written: Config,
   key: ConfigKey,
   env: Readonly<Record<string, string | undefined>>,
   io: CliIo,
 ): void {
-  const name = envNameOf(key);
-  const value = env[name];
-  if (value === undefined || value === "") {
+  const effective = overrideFromEnv({ config: written, warnings: [] }, env).config;
+  const shown = formatConfigValue(effective, key);
+  if (shown === formatConfigValue(written, key)) {
     return;
   }
 
-  io.err(`注意: 環境変数 ${name}=${value} が設定されているため、この設定は今の環境では効きません`);
+  io.err(
+    `注意: 環境変数 ${envNameOf(key)} が優先されるため、この設定は今の環境では効きません（実効値: ${shown}）`,
+  );
 }
 
 function resolveAction(value: string | undefined): Action {
