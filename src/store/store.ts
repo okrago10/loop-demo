@@ -49,24 +49,45 @@ const DEFAULT_DIR_NAME = ".tock";
 /** 保存先を差し替えるための環境変数。 */
 const DIR_ENV_NAME = "TOCK_DIR";
 
-/** 保存するファイル名。 */
+/** 記録を保存するファイル名。 */
 const FILE_NAME = "entries.jsonl";
 
+/** 設定を保存するファイル名。 */
+const CONFIG_FILE_NAME = "config.json";
+
 /**
- * 保存先のパスを決める。
+ * 保存先のディレクトリを決める。
  *
  * 環境変数とホームディレクトリを引数で受け取るので、テストから実際の `~/.tock` を
  * 触らずに検証できる。
  */
+function resolveDir(env: Readonly<Record<string, string | undefined>>, homeDir: string): string {
+  const configured = env[DIR_ENV_NAME];
+
+  if (configured !== undefined && configured.trim() !== "") {
+    return configured;
+  }
+
+  return join(homeDir, DEFAULT_DIR_NAME);
+}
+
+/** 記録の保存先のパスを決める。 */
 export function resolveStorePath(
   env: Readonly<Record<string, string | undefined>>,
   homeDir: string,
 ): string {
-  const configured = env[DIR_ENV_NAME];
+  return join(resolveDir(env, homeDir), FILE_NAME);
+}
 
-  if (configured !== undefined && configured.trim() !== "") {
-    return join(configured, FILE_NAME);
-  }
-
-  return join(homeDir, DEFAULT_DIR_NAME, FILE_NAME);
+/**
+ * 設定ファイルのパスを決める。
+ *
+ * 記録と同じディレクトリに置く。`TOCK_DIR` を切り替えれば設定ごと差し替わるので、
+ * テストや検証で実際の `~/.tock/config.json` を読み書きしない。
+ */
+export function resolveConfigPath(
+  env: Readonly<Record<string, string | undefined>>,
+  homeDir: string,
+): string {
+  return join(resolveDir(env, homeDir), CONFIG_FILE_NAME);
 }

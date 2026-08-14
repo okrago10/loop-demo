@@ -10,6 +10,8 @@ import { createStartCommand } from "../../src/commands/start.js";
 import { createStopCommand } from "../../src/commands/stop.js";
 import type { Entry } from "../../src/domain/entry.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
+import { DEFAULT_CONFIG } from "../../src/domain/config.js";
+import type { LoadConfig } from "../../src/store/config-store.js";
 import type { Store } from "../../src/store/store.js";
 
 let dir = "";
@@ -26,6 +28,9 @@ const io = {
     err.push(line);
   },
 };
+
+/** 一覧の確認に使う `log` は設定を読まない（既定値のみ）。 */
+const defaultConfig: LoadConfig = () => Promise.resolve({ config: DEFAULT_CONFIG, warnings: [] });
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "tock-edit-"));
@@ -406,7 +411,7 @@ describe("edit の結果は log に反映される", () => {
 
     await createEditCommand(deps(NOW)).run([id, "--note", "実装"], io);
     out = [];
-    await createLogCommand(deps(NOW)).run([], io);
+    await createLogCommand(deps(NOW), defaultConfig).run([], io);
 
     expect(out[0]).toContain("実装");
     expect(out[0]).not.toContain("設計");
@@ -465,7 +470,7 @@ describe("edit と日跨ぎの記録", () => {
 
     await createEditCommand(deps(local(14, 10))).run([id, "--end", "02:30"], io);
     out = [];
-    await createLogCommand(deps(local(14, 10))).run([], io);
+    await createLogCommand(deps(local(14, 10)), defaultConfig).run([], io);
 
     // 23:00 → 翌 02:30 は 3h 30m
     expect(out[0]).toContain("3h 30m");

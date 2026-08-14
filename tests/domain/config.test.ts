@@ -91,8 +91,12 @@ describe("parseConfigFile の壊れた設定（DoD）", () => {
 
   it("数値でない型は弾く", () => {
     expect(parseConfigFile({ weekStartsOn: "1" }).config.weekStartsOn).toBe(DEFAULT_WEEK_STARTS_ON);
-    expect(parseConfigFile({ weekStartsOn: null }).config.weekStartsOn).toBe(DEFAULT_WEEK_STARTS_ON);
-    expect(parseConfigFile({ weekStartsOn: true }).config.weekStartsOn).toBe(DEFAULT_WEEK_STARTS_ON);
+    expect(parseConfigFile({ weekStartsOn: null }).config.weekStartsOn).toBe(
+      DEFAULT_WEEK_STARTS_ON,
+    );
+    expect(parseConfigFile({ weekStartsOn: true }).config.weekStartsOn).toBe(
+      DEFAULT_WEEK_STARTS_ON,
+    );
   });
 
   it("知らないキーは無視して警告を出す（正しいキーは読む）", () => {
