@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createEntry, type Entry } from "../../src/domain/entry.js";
+import { overlapsPeriod } from "../../src/domain/period.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
 import { resolveStorePath, type Store } from "../../src/store/store.js";
 
@@ -352,6 +353,76 @@ describe("listByRange", () => {
 
   it("範囲が逆順なら失敗する", async () => {
     await expect(store.listByRange({ start: range.end, end: range.start })).rejects.toThrow(/範囲/);
+  });
+
+  it("範囲開始と同時刻の0分エントリは含める（境界）", async () => {
+    const zero = entry("2026-08-12T00:00:00Z", "2026-08-12T00:00:00Z");
+    await store.append(zero);
+
+    await expect(store.listByRange(range)).resolves.toEqual([zero]);
+  });
+
+  it("範囲終端と同時刻の0分エントリは含めない（境界）", async () => {
+    await store.append(entry("2026-08-13T00:00:00Z", "2026-08-13T00:00:00Z"));
+
+    await expect(store.listByRange(range)).resolves.toEqual([]);
+  });
+
+  // 判定を文字列の一致で書くと、同じ時刻を別の表記で書いた0分エントリが「0分」として
+  // 扱われず、範囲開始とちょうど一致する場合に落ちる。ファイルは手で編集できるので、
+  // 表記が揃っている保証はない
+  it("表記の違う同時刻で書かれた0分エントリも0分として扱う（境界）", async () => {
+    await writeFile(
+      file,
+      `${JSON.stringify({
+        op: "append",
+        entry: {
+          id: "zero-mixed",
+          start: "2026-08-12T00:00:00.000Z",
+          end: "2026-08-12T00:00:00Z",
+          tags: [],
+        },
+      })}\n`,
+      "utf8",
+    );
+
+    const found = await store.listByRange(range);
+    expect(found.map((one) => one.id)).toEqual(["zero-mixed"]);
+  });
+
+  // 違反 0 件を見るだけでは、store が自前の判定を持ち続けていても気づけない。
+  // domain の解釈を変えたらこのテストが落ちることが、共有できている証拠になる
+  it("すべての境界で domain の overlapsPeriod と同じ判定になる（判定の共有）", async () => {
+    const cases: readonly (readonly [string, string | undefined])[] = [
+      ["2026-08-10T01:00:00Z", "2026-08-10T02:00:00Z"], // 範囲より前
+      ["2026-08-20T01:00:00Z", "2026-08-20T02:00:00Z"], // 範囲より後
+      ["2026-08-12T01:00:00Z", "2026-08-12T02:00:00Z"], // 範囲の中
+      ["2026-08-11T23:00:00Z", "2026-08-12T01:00:00Z"], // 下側にはみ出す
+      ["2026-08-12T23:00:00Z", "2026-08-13T01:00:00Z"], // 上側にはみ出す
+      ["2026-08-11T23:00:00Z", "2026-08-12T00:00:00Z"], // 範囲開始に接して終わる
+      ["2026-08-13T00:00:00Z", "2026-08-13T01:00:00Z"], // 範囲終端に接して始まる
+      ["2026-08-11T00:00:00Z", "2026-08-14T00:00:00Z"], // 範囲を丸ごと含む
+      ["2026-08-12T02:00:00Z", "2026-08-12T02:00:00Z"], // 0分・範囲の中
+      ["2026-08-12T00:00:00Z", "2026-08-12T00:00:00Z"], // 0分・範囲開始と同時刻
+      ["2026-08-13T00:00:00Z", "2026-08-13T00:00:00Z"], // 0分・範囲終端と同時刻
+      ["2026-08-11T22:00:00Z", undefined], // 実行中・範囲より前に開始
+      ["2026-08-12T22:00:00Z", undefined], // 実行中・範囲の中で開始
+      ["2026-08-12T00:00:00Z", undefined], // 実行中・範囲開始と同時刻
+      ["2026-08-13T00:00:00Z", undefined], // 実行中・範囲終端と同時刻
+      ["2026-08-20T00:00:00Z", undefined], // 実行中・範囲より後
+    ];
+
+    const entries = cases.map(([start, end]) => entry(start, end));
+    for (const one of entries) {
+      await store.append(one);
+    }
+
+    const expected = entries.filter((one) => overlapsPeriod(one, range));
+    // 期待側が空・全件だと「同じ判定」を主張できないので、両方が混ざることを固定する
+    expect(expected.length).toBeGreaterThan(0);
+    expect(expected.length).toBeLessThan(entries.length);
+
+    await expect(store.listByRange(range)).resolves.toEqual(expected);
   });
 });
 

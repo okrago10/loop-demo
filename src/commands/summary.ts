@@ -3,7 +3,20 @@ import { dayPeriodOf, formatDay, parseDayPeriod } from "../domain/day.js";
 import type { Period } from "../domain/period.js";
 import { summarize } from "../domain/summary.js";
 import { formatSummaryLines } from "../format/summary.js";
+import type { CommandUsage } from "../format/help.js";
 import { type CommandDeps, rejectUnknownArgs, takeOption } from "./args.js";
+
+/** `tock summary` の使い方。 */
+const SUMMARY_USAGE: CommandUsage = {
+  options: [{ name: "--day", argument: "YYYY-MM-DD", summary: "集計する日（省略すると今日）" }],
+  examples: ["tock summary", "tock summary --day 2026-08-12"],
+};
+
+/** `tock today` の使い方。オプションは無い。 */
+const TODAY_USAGE: CommandUsage = {
+  options: [],
+  examples: ["tock today"],
+};
 
 /**
  * 指定した日のタグ別合計を表示する。
@@ -15,14 +28,11 @@ export function createSummaryCommand(deps: CommandDeps): Command {
   return {
     name: "summary",
     summary: "指定した日のタグ別合計を表示する",
+    usage: SUMMARY_USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
       const { value: day, rest } = takeOption(argv, "--day");
-      rejectUnknownArgs(rest, {
-        command: "summary",
-        allowedOptions: ["--day"],
-        allowPositional: false,
-      });
+      rejectUnknownArgs(rest, { command: "summary", usage: SUMMARY_USAGE });
 
       await report(deps, io, resolvePeriod(day, deps.now()));
     },
@@ -34,13 +44,10 @@ export function createTodayCommand(deps: CommandDeps): Command {
   return {
     name: "today",
     summary: "今日のタグ別合計を表示する",
+    usage: TODAY_USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      rejectUnknownArgs(argv, {
-        command: "today",
-        allowedOptions: [],
-        allowPositional: false,
-      });
+      rejectUnknownArgs(argv, { command: "today", usage: TODAY_USAGE });
 
       await report(deps, io, dayPeriodOf(deps.now()));
     },

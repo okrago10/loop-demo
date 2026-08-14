@@ -7,6 +7,7 @@ import {
   durationMs,
   durationSeconds,
   overlaps,
+  overlapsPeriod,
   splitByUtcDay,
 } from "../../src/domain/period.js";
 
@@ -306,6 +307,118 @@ describe("重複判定", () => {
     const b = entry("2026-08-12T05:00:00Z");
 
     expect(overlaps(a, b)).toBe(true);
+  });
+});
+
+/**
+ * 抽出のための重なり判定。
+ *
+ * **`log`（#16）/ `export`（#23）/ `listByRange`（#40）が共通で通る唯一の規則**なので、
+ * 呼び出し側ごとのテストに任せず、ここで直接固定する。以前は間接的にしか検証されて
+ * おらず、実行中エントリの終端の扱いを壊しても落ちるテストが1件しかなかった。
+ */
+describe("期間との重なり判定（抽出用）", () => {
+  const period = {
+    start: new Date("2026-08-12T00:00:00Z"),
+    end: new Date("2026-08-13T00:00:00Z"),
+  };
+
+  it("期間の中に収まるエントリは重なる", () => {
+    expect(overlapsPeriod(entry("2026-08-12T01:00:00Z", "2026-08-12T02:00:00Z"), period)).toBe(
+      true,
+    );
+  });
+
+  it("期間を丸ごと含むエントリも重なる", () => {
+    expect(overlapsPeriod(entry("2026-08-11T00:00:00Z", "2026-08-14T00:00:00Z"), period)).toBe(
+      true,
+    );
+  });
+
+  it("期間より前に終わるエントリは重ならない", () => {
+    expect(overlapsPeriod(entry("2026-08-10T01:00:00Z", "2026-08-10T02:00:00Z"), period)).toBe(
+      false,
+    );
+  });
+
+  it("期間より後に始まるエントリは重ならない", () => {
+    expect(overlapsPeriod(entry("2026-08-20T01:00:00Z", "2026-08-20T02:00:00Z"), period)).toBe(
+      false,
+    );
+  });
+
+  it("期間の開始に接して終わるエントリは重ならない（半開区間）", () => {
+    expect(overlapsPeriod(entry("2026-08-11T23:00:00Z", "2026-08-12T00:00:00Z"), period)).toBe(
+      false,
+    );
+  });
+
+  it("期間の終端に接して始まるエントリは重ならない（半開区間）", () => {
+    expect(overlapsPeriod(entry("2026-08-13T00:00:00Z", "2026-08-13T01:00:00Z"), period)).toBe(
+      false,
+    );
+  });
+
+  // `overlaps`（エントリ同士）は長さ 0 を落とすが、こちらは落とさない。
+  // 抽出なので、記録したものが黙って消えるほうが不都合が大きい
+  it("長さ 0 のエントリは開始が期間内なら重なる", () => {
+    expect(overlapsPeriod(entry("2026-08-12T02:00:00Z", "2026-08-12T02:00:00Z"), period)).toBe(
+      true,
+    );
+  });
+
+  it("長さ 0 のエントリは開始が期間の開始と一致しても重なる（境界）", () => {
+    expect(overlapsPeriod(entry("2026-08-12T00:00:00Z", "2026-08-12T00:00:00Z"), period)).toBe(
+      true,
+    );
+  });
+
+  it("長さ 0 のエントリは開始が期間の終端と一致すると重ならない（境界）", () => {
+    expect(overlapsPeriod(entry("2026-08-13T00:00:00Z", "2026-08-13T00:00:00Z"), period)).toBe(
+      false,
+    );
+  });
+
+  it("長さ 0 のエントリは開始が期間より前なら重ならない（境界）", () => {
+    expect(overlapsPeriod(entry("2026-08-11T00:00:00Z", "2026-08-11T00:00:00Z"), period)).toBe(
+      false,
+    );
+  });
+
+  // `CLAUDE.md`「終端のないデータ」で必須とされている4つ。
+  // 実行中エントリの下限を落とすバグを過去に2回出している
+  describe("終端のない（実行中）エントリ", () => {
+    it("期間より前に始まって、まだ終わっていない場合は重なる", () => {
+      expect(overlapsPeriod(entry("2026-08-11T22:00:00Z"), period)).toBe(true);
+    });
+
+    it("期間の中で始まって、まだ終わっていない場合は重なる", () => {
+      expect(overlapsPeriod(entry("2026-08-12T22:00:00Z"), period)).toBe(true);
+    });
+
+    it("期間より後に始まっている場合は重ならない", () => {
+      expect(overlapsPeriod(entry("2026-08-20T00:00:00Z"), period)).toBe(false);
+    });
+
+    it("開始が期間の開始とちょうど一致する場合は重なる", () => {
+      expect(overlapsPeriod(entry("2026-08-12T00:00:00Z"), period)).toBe(true);
+    });
+
+    it("開始が期間の終端とちょうど一致する場合は重ならない（境界）", () => {
+      expect(overlapsPeriod(entry("2026-08-13T00:00:00Z"), period)).toBe(false);
+    });
+  });
+
+  it("幅が 0 の期間には何も重ならない（境界）", () => {
+    const instant = { start: period.start, end: period.start };
+
+    expect(overlapsPeriod(entry("2026-08-12T00:00:00Z", "2026-08-12T01:00:00Z"), instant)).toBe(
+      false,
+    );
+    expect(overlapsPeriod(entry("2026-08-12T00:00:00Z", "2026-08-12T00:00:00Z"), instant)).toBe(
+      false,
+    );
+    expect(overlapsPeriod(entry("2026-08-12T00:00:00Z"), instant)).toBe(false);
   });
 });
 

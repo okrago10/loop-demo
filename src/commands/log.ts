@@ -7,6 +7,7 @@ import { shortIdLength } from "../domain/entry-id.js";
 import { formatLogLines } from "../format/log.js";
 import type { LoadConfig } from "../store/config-store.js";
 import { type CommandDeps, rejectUnknownArgs, takeOption } from "./args.js";
+import type { CommandUsage } from "../format/help.js";
 import { ALL_TIME, listAllEntries } from "./lookup.js";
 
 /**
@@ -27,20 +28,31 @@ const DECIMAL_POSITIVE_INTEGER = /^[1-9]\d*$/;
  * 読むだけで何も書かない。該当0件でもエラーにしない（`status` と同じ考え方で、
  * 「まだ記録がない」は正常な答えである）。
  */
+/** `tock log` の使い方。 */
+const USAGE: CommandUsage = {
+  options: [
+    {
+      name: "--period",
+      argument: "期間",
+      summary: "期間で絞る（today / this-week / 2026-08-12 など）",
+    },
+    { name: "--tag", argument: "タグ", summary: "タグで絞る（階層タグは親でも一致する）" },
+    { name: "--limit", argument: "件数", summary: `表示する件数（既定 ${String(DEFAULT_LIMIT)}）` },
+  ],
+  examples: ["tock log", "tock log --limit 5", "tock log --period this-week --tag work"],
+};
+
 export function createLogCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
     name: "log",
     summary: "記録を新しい順に一覧表示する",
+    usage: USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
       const { value: periodValue, rest: afterPeriod } = takeOption(argv, "--period");
       const { value: tagValue, rest: afterTag } = takeOption(afterPeriod, "--tag");
       const { value: limitValue, rest } = takeOption(afterTag, "--limit");
-      rejectUnknownArgs(rest, {
-        command: "log",
-        allowedOptions: ["--period", "--tag", "--limit"],
-        allowPositional: false,
-      });
+      rejectUnknownArgs(rest, { command: "log", usage: USAGE });
 
       // 引数の検査を済ませてからファイルに触る。打ち間違いのときに設定ファイルや記録を
       // 読む必要はなく、失敗の理由も引数だけで決まる。

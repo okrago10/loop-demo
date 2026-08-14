@@ -3,10 +3,17 @@ import type { Entry } from "../domain/entry.js";
 import { durationMs } from "../domain/period.js";
 import { formatDuration } from "../format/duration.js";
 import { type CommandDeps, rejectUnknownArgs, takeFlag } from "./args.js";
+import type { CommandUsage } from "../format/help.js";
 import { assertStartNotInFuture } from "./entry-guard.js";
 
 /** `--short` で実行中が無いときに出す1行。 */
 const NOTHING_RUNNING_SHORT = "-";
+
+/** `tock status` の使い方。 */
+const USAGE: CommandUsage = {
+  options: [{ name: "--short", summary: "1行だけ出す（プロンプトやステータスバー向け）" }],
+  examples: ["tock status", "tock status --short"],
+};
 
 /**
  * 実行中の作業を表示する。
@@ -21,14 +28,11 @@ export function createStatusCommand(deps: CommandDeps): Command {
   return {
     name: "status",
     summary: "実行中の作業を表示する",
+    usage: USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
       const { present: short, rest } = takeFlag(argv, "--short");
-      rejectUnknownArgs(rest, {
-        command: "status",
-        allowedOptions: ["--short"],
-        allowPositional: false,
-      });
+      rejectUnknownArgs(rest, { command: "status", usage: USAGE });
 
       const now = deps.now();
       const running = await deps.store.findRunning();

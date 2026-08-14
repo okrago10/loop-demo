@@ -5,6 +5,7 @@ import { weekPeriodOf } from "../domain/week.js";
 import { formatWeekLines } from "../format/week.js";
 import type { LoadConfig } from "../store/config-store.js";
 import { type CommandDeps, rejectUnknownArgs, takeOption } from "./args.js";
+import type { CommandUsage } from "../format/help.js";
 
 /** 十進の整数。符号は付けられるが、先頭の余分な `0`・小数点・指数・空白は許さない。 */
 const DECIMAL_INTEGER = /^[+-]?(0|[1-9]\d*)$/;
@@ -20,19 +21,29 @@ const DECIMAL_INTEGER = /^[+-]?(0|[1-9]\d*)$/;
  * 最後にコマンドラインオプションを重ねるだけにする。優先順位の規則を各コマンドが
  * 持つと、コマンドごとに効き方が食い違う。
  */
+/** `tock week` の使い方。 */
+const USAGE: CommandUsage = {
+  options: [
+    { name: "--offset", argument: "週数", summary: "何週前を見るか（0 が今週。既定 0）" },
+    {
+      name: "--week-starts-on",
+      argument: "曜日",
+      summary: "週の開始曜日（0 が日曜。設定より優先）",
+    },
+  ],
+  examples: ["tock week", "tock week --offset 1", "tock week --week-starts-on 1"],
+};
+
 export function createWeekCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
     name: "week",
     summary: "週のタグ別・曜日別の集計を表示する",
+    usage: USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
       const { value: offsetValue, rest: afterOffset } = takeOption(argv, "--offset");
       const { value: weekStartValue, rest } = takeOption(afterOffset, "--week-starts-on");
-      rejectUnknownArgs(rest, {
-        command: "week",
-        allowedOptions: ["--offset", "--week-starts-on"],
-        allowPositional: false,
-      });
+      rejectUnknownArgs(rest, { command: "week", usage: USAGE });
 
       // 引数の検査を済ませてから store に触る。打ち間違いでファイルを読む必要はない
       const offsetWeeks = resolveOffset(offsetValue);
