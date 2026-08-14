@@ -2,6 +2,7 @@ import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import type { Entry } from "../domain/entry.js";
+import { overlapsPeriod } from "../domain/period.js";
 import type { Store, StoreRange } from "./store.js";
 
 /**
@@ -239,23 +240,10 @@ export function createJsonlStore(filePath: string): Store {
 
       const state = await readState(filePath);
 
-      return [...state.values()].filter((entry) => {
-        const entryStart = Date.parse(entry.start);
-
-        // 実行中は終端が未定なので、開始以降ずっと続くものとして扱う。
-        // 開始が範囲の終わりより前なら重なる（#6 の overlaps と同じ扱い）。
-        // 前日から続く未停止の作業を当日の範囲から落とさないため、下限は見ない
-        if (entry.end === undefined) {
-          return entryStart < to;
-        }
-
-        // 0 分は半開区間では幅のない点なので、開始が範囲内かで判定する
-        if (entry.end === entry.start) {
-          return entryStart >= from && entryStart < to;
-        }
-
-        return entryStart < to && Date.parse(entry.end) > from;
-      });
+      // 重なりの判定は domain に1つだけ置く（`overlapsPeriod`）。以前はここに同じ規則を
+      // 書き写していて、実行中エントリの下限を落とすバグを出している（#40）。
+      // 同じ概念が2箇所にあると、片方だけ直したときに食い違う
+      return [...state.values()].filter((entry) => overlapsPeriod(entry, range));
     },
 
     async findRunning(): Promise<Entry | undefined> {
