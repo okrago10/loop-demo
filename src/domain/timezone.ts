@@ -73,9 +73,10 @@ export function isTimeZone(name: string): boolean {
   }
 
   try {
-    new Intl.DateTimeFormat("en-US", { timeZone: name });
+    // 名前が使えるかは、整形器を作れるかどうかで判定する（作れなければ RangeError）
+    const probe = new Intl.DateTimeFormat("en-US", { timeZone: name });
 
-    return true;
+    return probe.resolvedOptions().timeZone !== undefined;
   } catch {
     return false;
   }
