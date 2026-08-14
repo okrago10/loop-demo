@@ -4,6 +4,7 @@ import { parsePeriodExpression } from "../domain/period-expression.js";
 import type { Period } from "../domain/period.js";
 import { normalizeTag } from "../domain/tag.js";
 import { formatLogLines } from "../format/log.js";
+import type { LoadConfig } from "../store/config-store.js";
 import { type CommandDeps, rejectUnknownArgs, takeOption } from "./args.js";
 import { ALL_TIME } from "./lookup.js";
 
@@ -25,7 +26,7 @@ const DECIMAL_POSITIVE_INTEGER = /^[1-9]\d*$/;
  * 読むだけで何も書かない。該当0件でもエラーにしない（`status` と同じ考え方で、
  * 「まだ記録がない」は正常な答えである）。
  */
-export function createLogCommand(deps: CommandDeps): Command {
+export function createLogCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
     name: "log",
     summary: "記録を新しい順に一覧表示する",
@@ -40,12 +41,22 @@ export function createLogCommand(deps: CommandDeps): Command {
         allowPositional: false,
       });
 
-      // 引数の検査をすべて済ませてから store に触る。打ち間違いのときに
-      // ファイルを読む必要はなく、失敗の理由も引数だけで決まる
+      // 引数の検査を済ませてからファイルに触る。打ち間違いのときに設定ファイルや記録を
+      // 読む必要はなく、失敗の理由も引数だけで決まる。
+      //
+      // **`--period` の解決だけは設定を読んだ後になる**（週の開始曜日に依存するため）。
+      // それ以外を先に片付けておけば、`--limit` の打ち間違いで設定ファイルの警告が
+      // 先に出ることはない
       const now = deps.now();
-      const period = resolvePeriod(periodValue, now);
       const tag = resolveTag(tagValue);
       const limit = resolveLimit(limitValue);
+
+      const { config, warnings } = await loadConfig();
+      for (const warning of warnings) {
+        io.err(warning);
+      }
+
+      const period = resolvePeriod(periodValue, now, config.weekStartsOn);
 
       const entries = await deps.store.listByRange(period);
       const rows = selectLogRows(
@@ -61,14 +72,19 @@ export function createLogCommand(deps: CommandDeps): Command {
   };
 }
 
-/** `--period` の解決。domain のエラーは利用者向けに翻訳する（domain は `UserError` を知らない）。 */
-function resolvePeriod(value: string | undefined, now: Date): Period {
+/**
+ * `--period` の解決。domain のエラーは利用者向けに翻訳する（domain は `UserError` を知らない）。
+ *
+ * **`this-week` / `last-week` は設定の週の開始曜日に従う。** `week` コマンドだけが設定を
+ * 見て `log` が見ないと、同じ「今週」が2つの意味を持つ。
+ */
+function resolvePeriod(value: string | undefined, now: Date, weekStartsOn: number): Period {
   if (value === undefined) {
     return ALL_TIME;
   }
 
   try {
-    return parsePeriodExpression(value, now);
+    return parsePeriodExpression(value, now, { weekStartsOn });
   } catch (error) {
     throw new UserError(error instanceof Error ? error.message : String(error));
   }

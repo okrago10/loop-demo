@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -9,6 +9,12 @@ import { createStartCommand } from "../../src/commands/start.js";
 import { createStopCommand } from "../../src/commands/stop.js";
 import { createEntry, type Entry } from "../../src/domain/entry.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
+import { DEFAULT_CONFIG } from "../../src/domain/config.js";
+import {
+  createJsonConfigStore,
+  type LoadConfig,
+  loadEffectiveConfig,
+} from "../../src/store/config-store.js";
 import type { Store } from "../../src/store/store.js";
 
 let dir = "";
@@ -25,6 +31,9 @@ const io = {
     err.push(line);
   },
 };
+
+/** 設定を読まない読み取り（既定値のみ）。設定が効くことの検証は末尾の describe に置く。 */
+const defaultConfig: LoadConfig = () => Promise.resolve({ config: DEFAULT_CONFIG, warnings: [] });
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "tock-export-"));
@@ -80,41 +89,46 @@ function columns(line: string): string[] {
 
 describe("export の引数", () => {
   it("--format が無ければエラーにし、使える値を示す", async () => {
-    await expect(createExportCommand(deps(NOW)).run([], io)).rejects.toThrow(UserError);
-    await expect(createExportCommand(deps(NOW)).run([], io)).rejects.toThrow(
+    await expect(createExportCommand(deps(NOW), defaultConfig).run([], io)).rejects.toThrow(
+      UserError,
+    );
+    await expect(createExportCommand(deps(NOW), defaultConfig).run([], io)).rejects.toThrow(
       /csv.*json|json.*csv/s,
     );
   });
 
   it("知らない形式はエラーにする", async () => {
-    await expect(createExportCommand(deps(NOW)).run(["--format", "xml"], io)).rejects.toThrow(
-      UserError,
-    );
+    await expect(
+      createExportCommand(deps(NOW), defaultConfig).run(["--format", "xml"], io),
+    ).rejects.toThrow(UserError);
   });
 
   it("空文字の形式もエラーにする（境界）", async () => {
-    await expect(createExportCommand(deps(NOW)).run(["--format", ""], io)).rejects.toThrow(
-      UserError,
-    );
+    await expect(
+      createExportCommand(deps(NOW), defaultConfig).run(["--format", ""], io),
+    ).rejects.toThrow(UserError);
   });
 
   it("大文字で書かれた形式も受け付ける", async () => {
     await record(local(13, 9), local(13, 10), "設計 #work");
 
-    await createExportCommand(deps(NOW)).run(["--format", "CSV"], io);
+    await createExportCommand(deps(NOW), defaultConfig).run(["--format", "CSV"], io);
 
     expect(out[0]).toBe("id,start,end,duration_min,tags,note");
   });
 
   it("知らないオプションはエラーにする", async () => {
     await expect(
-      createExportCommand(deps(NOW)).run(["--format", "csv", "--limit", "3"], io),
+      createExportCommand(deps(NOW), defaultConfig).run(["--format", "csv", "--limit", "3"], io),
     ).rejects.toThrow(UserError);
   });
 
   it("解釈できない期間はエラーにする", async () => {
     await expect(
-      createExportCommand(deps(NOW)).run(["--format", "csv", "--period", "nonsense"], io),
+      createExportCommand(deps(NOW), defaultConfig).run(
+        ["--format", "csv", "--period", "nonsense"],
+        io,
+      ),
     ).rejects.toThrow(UserError);
   });
 
@@ -128,7 +142,10 @@ describe("export の引数", () => {
     };
 
     await expect(
-      createExportCommand({ ...deps(NOW), store: broken }).run(["--format", "xml"], io),
+      createExportCommand({ ...deps(NOW), store: broken }, defaultConfig).run(
+        ["--format", "xml"],
+        io,
+      ),
     ).rejects.toThrow(UserError);
   });
 });
@@ -138,7 +155,7 @@ describe("export --format csv", () => {
     await record(local(13, 11), local(13, 12), "レビュー #work");
     await record(local(13, 9), local(13, 10), "設計 #work");
 
-    await createExportCommand(deps(NOW)).run(["--format", "csv"], io);
+    await createExportCommand(deps(NOW), defaultConfig).run(["--format", "csv"], io);
 
     expect(out).toHaveLength(3);
     expect(out[1]).toContain("設計");
@@ -147,7 +164,7 @@ describe("export --format csv", () => {
   });
 
   it("記録が1件も無くても見出し行を出す（境界）", async () => {
-    await createExportCommand(deps(NOW)).run(["--format", "csv"], io);
+    await createExportCommand(deps(NOW), defaultConfig).run(["--format", "csv"], io);
 
     expect(out).toEqual(["id,start,end,duration_min,tags,note"]);
   });
@@ -155,7 +172,7 @@ describe("export --format csv", () => {
   it("長さを分で出す", async () => {
     await record(local(13, 9), local(13, 10, 30), "設計 #work");
 
-    await createExportCommand(deps(NOW)).run(["--format", "csv"], io);
+    await createExportCommand(deps(NOW), defaultConfig).run(["--format", "csv"], io);
 
     expect(columns(out[1] ?? "")[3]).toBe("90");
   });
@@ -163,7 +180,7 @@ describe("export --format csv", () => {
   it("実行中の記録は end と duration_min を空欄にする（終端のないデータ）", async () => {
     await startOnly(local(13, 9), "設計 #work");
 
-    await createExportCommand(deps(NOW)).run(["--format", "csv"], io);
+    await createExportCommand(deps(NOW), defaultConfig).run(["--format", "csv"], io);
 
     const cells = columns(out[1] ?? "");
     expect(cells[2]).toBe("");
@@ -183,7 +200,7 @@ describe("export --format csv", () => {
     );
     await store.append(entry);
 
-    await createExportCommand(deps(NOW)).run(["--format", "csv"], io);
+    await createExportCommand(deps(NOW), defaultConfig).run(["--format", "csv"], io);
 
     expect(out[1]).toBe(`id-escape,${entry.start},${entry.end ?? ""},60,work,"""至急"", 対応"`);
   });
@@ -195,7 +212,7 @@ describe("export --format csv", () => {
     );
     await store.append(entry);
 
-    await createExportCommand(deps(NOW)).run(["--format", "csv"], io);
+    await createExportCommand(deps(NOW), defaultConfig).run(["--format", "csv"], io);
 
     expect(out[1]?.endsWith(',"1行目\n2行目"')).toBe(true);
   });
@@ -206,7 +223,10 @@ describe("export --period（DoD）", () => {
     await record(local(12, 9), local(12, 10), "前日 #work");
     await record(local(13, 9), local(13, 10), "当日 #work");
 
-    await createExportCommand(deps(NOW)).run(["--format", "csv", "--period", "today"], io);
+    await createExportCommand(deps(NOW), defaultConfig).run(
+      ["--format", "csv", "--period", "today"],
+      io,
+    );
 
     expect(out).toHaveLength(2);
     expect(out[1]).toContain("当日");
@@ -217,7 +237,7 @@ describe("export --period（DoD）", () => {
     await record(local(12, 9), local(12, 10), "12日 #work");
     await record(local(13, 9), local(13, 10), "13日 #work");
 
-    await createExportCommand(deps(NOW)).run(
+    await createExportCommand(deps(NOW), defaultConfig).run(
       ["--format", "csv", "--period", "2026-08-11..2026-08-12"],
       io,
     );
@@ -231,7 +251,7 @@ describe("export --period（DoD）", () => {
     await record(local(1, 9), local(1, 10), "8月1日 #work");
     await record(local(13, 9), local(13, 10), "8月13日 #work");
 
-    await createExportCommand(deps(NOW)).run(["--format", "csv"], io);
+    await createExportCommand(deps(NOW), defaultConfig).run(["--format", "csv"], io);
 
     expect(out).toHaveLength(3);
   });
@@ -239,7 +259,10 @@ describe("export --period（DoD）", () => {
   it("該当する記録が無ければ見出し行だけを出す（境界）", async () => {
     await record(local(12, 9), local(12, 10), "前日 #work");
 
-    await createExportCommand(deps(NOW)).run(["--format", "csv", "--period", "today"], io);
+    await createExportCommand(deps(NOW), defaultConfig).run(
+      ["--format", "csv", "--period", "today"],
+      io,
+    );
 
     expect(out).toEqual(["id,start,end,duration_min,tags,note"]);
   });
@@ -247,7 +270,10 @@ describe("export --period（DoD）", () => {
   it("期間より前に始まって、まだ終わっていない記録も出す（終端のないデータ）", async () => {
     await startOnly(local(12, 23), "夜間作業 #work");
 
-    await createExportCommand(deps(NOW)).run(["--format", "csv", "--period", "today"], io);
+    await createExportCommand(deps(NOW), defaultConfig).run(
+      ["--format", "csv", "--period", "today"],
+      io,
+    );
 
     expect(out).toHaveLength(2);
     expect(out[1]).toContain("夜間作業");
@@ -256,7 +282,10 @@ describe("export --period（DoD）", () => {
   it("期間をまたぐ記録は切り出さず、元の長さのまま出す", async () => {
     await record(local(12, 23), local(13, 1), "夜間作業 #work");
 
-    await createExportCommand(deps(NOW)).run(["--format", "csv", "--period", "today"], io);
+    await createExportCommand(deps(NOW), defaultConfig).run(
+      ["--format", "csv", "--period", "today"],
+      io,
+    );
 
     expect(out).toHaveLength(2);
     expect(columns(out[1] ?? "")[3]).toBe("120");
@@ -266,7 +295,10 @@ describe("export --period（DoD）", () => {
     await record(local(12, 9), local(12, 10), "前日 #work");
     await record(local(13, 9), local(13, 10), "当日 #work");
 
-    await createExportCommand(deps(NOW)).run(["--format", "json", "--period", "today"], io);
+    await createExportCommand(deps(NOW), defaultConfig).run(
+      ["--format", "json", "--period", "today"],
+      io,
+    );
 
     const parsed = JSON.parse(out.join("\n")) as Entry[];
     expect(parsed).toHaveLength(1);
@@ -278,14 +310,14 @@ describe("export --format json（DoD）", () => {
   it("出力全体が1つの JSON の配列になっている", async () => {
     await record(local(13, 9), local(13, 10), "設計 #work");
 
-    await createExportCommand(deps(NOW)).run(["--format", "json"], io);
+    await createExportCommand(deps(NOW), defaultConfig).run(["--format", "json"], io);
 
     const parsed: unknown = JSON.parse(out.join("\n"));
     expect(Array.isArray(parsed)).toBe(true);
   });
 
   it("記録が1件も無ければ空の配列を出す（境界）", async () => {
-    await createExportCommand(deps(NOW)).run(["--format", "json"], io);
+    await createExportCommand(deps(NOW), defaultConfig).run(["--format", "json"], io);
 
     expect(JSON.parse(out.join("\n"))).toEqual([]);
   });
@@ -303,7 +335,7 @@ describe("export --format json（DoD）", () => {
     await store.append(original);
     await startOnly(local(13, 11), "実装 #work");
 
-    await createExportCommand(deps(NOW)).run(["--format", "json"], io);
+    await createExportCommand(deps(NOW), defaultConfig).run(["--format", "json"], io);
 
     const parsed = JSON.parse(out.join("\n")) as Entry[];
     const rebuilt = parsed.map((entry) => createEntry(entry, { newId: () => entry.id }));
@@ -314,7 +346,7 @@ describe("export --format json（DoD）", () => {
 
   it("読み戻した記録をそのまま保存し直せる", async () => {
     await record(local(13, 9), local(13, 10), "設計 #work");
-    await createExportCommand(deps(NOW)).run(["--format", "json"], io);
+    await createExportCommand(deps(NOW), defaultConfig).run(["--format", "json"], io);
 
     const parsed = JSON.parse(out.join("\n")) as Entry[];
     const otherDir = await mkdtemp(join(tmpdir(), "tock-export-import-"));
@@ -335,9 +367,86 @@ describe("export --format json（DoD）", () => {
   it("実行中の記録は end を持たないまま出す（終端のないデータ）", async () => {
     await startOnly(local(13, 9), "設計 #work");
 
-    await createExportCommand(deps(NOW)).run(["--format", "json"], io);
+    await createExportCommand(deps(NOW), defaultConfig).run(["--format", "json"], io);
 
     const [entry] = JSON.parse(out.join("\n")) as Record<string, unknown>[];
     expect(entry).not.toHaveProperty("end");
+  });
+});
+
+describe("export --period this-week と週の開始曜日の設定", () => {
+  /** 一時ディレクトリの設定ファイルから、実際に使う設定を組み立てる。 */
+  function loadFrom(env: Readonly<Record<string, string | undefined>>): LoadConfig {
+    return () => loadEffectiveConfig(createJsonConfigStore(join(dir, "config.json")), env);
+  }
+
+  it("設定した開始曜日に従って this-week の範囲が変わる（log / week と揃える）", async () => {
+    // 2026-08-13 は木曜。日曜（8/9）の記録は、月曜始まりの今週には入らない
+    await record(local(9, 9), local(9, 10), "日曜の作業 #work");
+
+    await createExportCommand(deps(NOW), loadFrom({})).run(
+      ["--format", "csv", "--period", "this-week"],
+      io,
+    );
+    expect(out).toEqual(["id,start,end,duration_min,tags,note"]);
+
+    out = [];
+    await writeFile(join(dir, "config.json"), JSON.stringify({ weekStartsOn: 0 }), "utf8");
+    await createExportCommand(deps(NOW), loadFrom({})).run(
+      ["--format", "csv", "--period", "this-week"],
+      io,
+    );
+
+    expect(out).toHaveLength(2);
+    expect(out[1]).toContain("日曜の作業");
+  });
+
+  it("環境変数が設定ファイルより優先される", async () => {
+    await record(local(9, 9), local(9, 10), "日曜の作業 #work");
+    await writeFile(join(dir, "config.json"), JSON.stringify({ weekStartsOn: 0 }), "utf8");
+
+    await createExportCommand(deps(NOW), loadFrom({ TOCK_WEEK_STARTS_ON: "1" })).run(
+      ["--format", "csv", "--period", "this-week"],
+      io,
+    );
+
+    expect(out).toEqual(["id,start,end,duration_min,tags,note"]);
+  });
+
+  it("設定ファイルが壊れていれば警告を出し、書き出しは既定で行う", async () => {
+    await record(local(13, 9), local(13, 10), "設計 #work");
+    await writeFile(join(dir, "config.json"), "壊れています", "utf8");
+
+    await createExportCommand(deps(NOW), loadFrom({})).run(["--format", "csv"], io);
+
+    expect(out).toHaveLength(2);
+    expect(err).toHaveLength(1);
+    expect(err[0]).toContain("config.json");
+  });
+});
+
+describe("引数の打ち間違いで設定ファイルを読まない（レビュー指摘）", () => {
+  function loadFrom(env: Readonly<Record<string, string | undefined>>): LoadConfig {
+    return () => loadEffectiveConfig(createJsonConfigStore(join(dir, "config.json")), env);
+  }
+
+  it("--format の打ち間違いでは、壊れた設定ファイルの警告が出ない", async () => {
+    await writeFile(join(dir, "config.json"), "壊れています", "utf8");
+
+    await expect(
+      createExportCommand(deps(NOW), loadFrom({})).run(["--format", "xml"], io),
+    ).rejects.toThrow(UserError);
+
+    expect(err).toEqual([]);
+  });
+
+  it("知らないオプションでも同じ", async () => {
+    await writeFile(join(dir, "config.json"), "壊れています", "utf8");
+
+    await expect(
+      createExportCommand(deps(NOW), loadFrom({})).run(["--format", "csv", "--limit", "3"], io),
+    ).rejects.toThrow(UserError);
+
+    expect(err).toEqual([]);
   });
 });

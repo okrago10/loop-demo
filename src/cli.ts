@@ -4,6 +4,7 @@ import { createInterface } from "node:readline/promises";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
+import { createConfigCommand } from "./commands/config.js";
 import { createEditCommand } from "./commands/edit.js";
 import { createExportCommand } from "./commands/export.js";
 import { createLogCommand } from "./commands/log.js";
@@ -15,8 +16,9 @@ import { createSummaryCommand, createTodayCommand } from "./commands/summary.js"
 import { createSwitchCommand } from "./commands/switch.js";
 import { createWeekCommand } from "./commands/week.js";
 import { randomId } from "./id.js";
+import { createJsonConfigStore, loadEffectiveConfig } from "./store/config-store.js";
 import { createJsonlStore } from "./store/jsonl-store.js";
-import { resolveStorePath } from "./store/store.js";
+import { resolveConfigPath, resolveStorePath } from "./store/store.js";
 import { readVersion } from "./version.js";
 
 /** 正常終了。 */
@@ -195,6 +197,11 @@ function buildCommands(): readonly Command[] {
     newId: randomId,
   };
 
+  // 設定は必要になったコマンドがその場で読む。すべての起動でファイルを読むと、
+  // 設定を使わない打刻まで設定ファイルの状態に引きずられる
+  const configStore = createJsonConfigStore(resolveConfigPath(process.env, homedir()));
+  const loadConfig = () => loadEffectiveConfig(configStore, process.env);
+
   return [
     createStartCommand(deps),
     createStopCommand(deps),
@@ -202,11 +209,12 @@ function buildCommands(): readonly Command[] {
     createSwitchCommand(deps),
     createTodayCommand(deps),
     createSummaryCommand(deps),
-    createLogCommand(deps),
-    createWeekCommand(deps),
+    createLogCommand(deps, loadConfig),
+    createWeekCommand(deps, loadConfig),
     createEditCommand(deps),
     createRmCommand(deps, confirmOnStdin),
-    createExportCommand(deps),
+    createExportCommand(deps, loadConfig),
+    createConfigCommand(configStore, process.env),
   ];
 }
 

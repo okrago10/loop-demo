@@ -4,6 +4,7 @@ import { selectExportEntries } from "../domain/export.js";
 import { parsePeriodExpression } from "../domain/period-expression.js";
 import type { Period } from "../domain/period.js";
 import { formatCsvLines, formatJsonLines } from "../format/export.js";
+import type { LoadConfig } from "../store/config-store.js";
 import { type CommandDeps, rejectUnknownArgs, takeOption } from "./args.js";
 import { ALL_TIME } from "./lookup.js";
 
@@ -35,7 +36,7 @@ const FORMAT_NAMES = Object.keys(FORMATTERS);
  * 保存先を自前で扱うと、上書きの確認や書き込み失敗の扱いをこのコマンドが
  * 抱えることになる。標準出力に出しておけば `head` や他のコマンドにも繋げられる。
  */
-export function createExportCommand(deps: CommandDeps): Command {
+export function createExportCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
     name: "export",
     summary: "記録を CSV / JSON で書き出す",
@@ -49,10 +50,20 @@ export function createExportCommand(deps: CommandDeps): Command {
         allowPositional: false,
       });
 
-      // 引数の検査をすべて済ませてから store に触る。打ち間違いのときに
-      // ファイルを読む必要はなく、失敗の理由も引数だけで決まる
+      // 引数の検査を済ませてからファイルに触る。打ち間違いのときに設定ファイルや記録を
+      // 読む必要はなく、失敗の理由も引数だけで決まる。
+      //
+      // **`--period` の解決だけは設定を読んだ後になる**（週の開始曜日に依存するため）。
+      // それ以外を先に片付けておけば、`--format` の打ち間違いで設定ファイルの警告が
+      // 先に出ることはない
       const format = resolveFormat(formatValue);
-      const period = resolvePeriod(periodValue, deps.now());
+
+      const { config, warnings } = await loadConfig();
+      for (const warning of warnings) {
+        io.err(warning);
+      }
+
+      const period = resolvePeriod(periodValue, deps.now(), config.weekStartsOn);
 
       const entries = await deps.store.listByRange(period);
 
@@ -88,14 +99,19 @@ function isFormat(value: string): value is Format {
   return Object.hasOwn(FORMATTERS, value);
 }
 
-/** `--period` の解決。domain のエラーは利用者向けに翻訳する（domain は `UserError` を知らない）。 */
-function resolvePeriod(value: string | undefined, now: Date): Period {
+/**
+ * `--period` の解決。domain のエラーは利用者向けに翻訳する（domain は `UserError` を知らない）。
+ *
+ * **`this-week` / `last-week` は設定の週の開始曜日に従う**（`log` / `week` と同じ）。
+ * 書き出しだけが別の「今週」を持つと、画面で見た範囲と書き出した範囲が食い違う。
+ */
+function resolvePeriod(value: string | undefined, now: Date, weekStartsOn: number): Period {
   if (value === undefined) {
     return ALL_TIME;
   }
 
   try {
-    return parsePeriodExpression(value, now);
+    return parsePeriodExpression(value, now, { weekStartsOn });
   } catch (error) {
     throw new UserError(error instanceof Error ? error.message : String(error));
   }

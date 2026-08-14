@@ -9,6 +9,8 @@ import { type Confirm, createRmCommand } from "../../src/commands/rm.js";
 import { createStartCommand } from "../../src/commands/start.js";
 import { createStopCommand } from "../../src/commands/stop.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
+import { DEFAULT_CONFIG } from "../../src/domain/config.js";
+import type { LoadConfig } from "../../src/store/config-store.js";
 import type { Store } from "../../src/store/store.js";
 
 let dir = "";
@@ -45,6 +47,9 @@ const confirmNo: Confirm = (question) => {
 const confirmNever: Confirm = () => {
   throw new Error("確認が呼ばれました（--yes のときは聞かないはず）");
 };
+
+/** 一覧の確認に使う `log` は設定を読まない（既定値のみ）。 */
+const defaultConfig: LoadConfig = () => Promise.resolve({ config: DEFAULT_CONFIG, warnings: [] });
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "tock-rm-"));
@@ -104,7 +109,7 @@ describe("rm の削除（DoD）", () => {
 
     await createRmCommand(deps(NOW), confirmYes).run([id, "--yes"], io);
     out = [];
-    await createLogCommand(deps(NOW)).run([], io);
+    await createLogCommand(deps(NOW), defaultConfig).run([], io);
 
     expect(out.join("\n")).not.toContain("設計");
     expect(out.join("\n")).toContain("会議");
