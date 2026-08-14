@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { createConfigCommand } from "./commands/config.js";
 import { createEditCommand } from "./commands/edit.js";
+import { createExportCommand } from "./commands/export.js";
 import { createLogCommand } from "./commands/log.js";
 import { createRmCommand } from "./commands/rm.js";
 import { createStartCommand } from "./commands/start.js";
@@ -212,6 +213,7 @@ function buildCommands(): readonly Command[] {
     createWeekCommand(deps, loadConfig),
     createEditCommand(deps),
     createRmCommand(deps, confirmOnStdin),
+    createExportCommand(deps, loadConfig),
     createConfigCommand(configStore, process.env),
   ];
 }

@@ -1,5 +1,5 @@
 import { endedAt, type Entry, startedAt } from "./entry.js";
-import type { Period } from "./period.js";
+import { overlapsPeriod, type Period } from "./period.js";
 import { expandTags, normalizeTag } from "./tag.js";
 
 /**
@@ -55,29 +55,6 @@ export function selectLogRows(entries: readonly Entry[], filter: LogFilter, asOf
   const sorted = selected.toSorted((a, b) => b.start.getTime() - a.start.getTime());
 
   return limit === undefined ? sorted : sorted.slice(0, limit);
-}
-
-/**
- * 記録が期間に重なるか。期間は半開区間 `[start, end)`。
- *
- * **実行中の記録は終端が未定なので、開始以降ずっと続くものとして扱う**（`overlaps` と同じ）。
- * これにより「範囲より前に始まって、まだ終わっていない」記録が落ちない。この取りこぼしは
- * 過去に `listByRange` で実際に起きている。
- *
- * 長さ 0 の記録は、半開区間の一般式では何とも重ならない。`clipToPeriod` と同じく
- * 「開始が期間内なら残す」に揃える。記録したものが一覧から黙って消えるほうが不都合が大きい。
- */
-function overlapsPeriod(entry: Entry, period: Period): boolean {
-  const from = startedAt(entry).getTime();
-  const to = endedAt(entry)?.getTime() ?? Number.POSITIVE_INFINITY;
-  const periodStart = period.start.getTime();
-  const periodEnd = period.end.getTime();
-
-  if (from === to) {
-    return from >= periodStart && from < periodEnd;
-  }
-
-  return from < periodEnd && to > periodStart;
 }
 
 /**
