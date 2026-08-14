@@ -43,11 +43,27 @@ export function shortIdLength(ids: readonly string[], minimum = MIN_SHORT_ID_LEN
   return longest;
 }
 
-/** 切り詰めた結果がすべて異なるか。 */
+/**
+ * 切り詰めた結果がすべて異なるか。
+ *
+ * **大文字小文字は区別しない。`matchById` と同じ数え方に揃える。** 区別して数えると、
+ * ケースだけが違う id を「この桁で分かれた」と判定してしまい、一覧には別物として出るのに
+ * 引き当てでは同じものに見える——取り違えになる。
+ */
 function isDistinctAt(ids: readonly string[], length: number): boolean {
-  const seen = new Set(ids.map((id) => id.slice(0, length)));
+  const seen = new Set(ids.map((id) => normalizeId(id).slice(0, length)));
 
-  return seen.size === new Set(ids).size;
+  return seen.size === new Set(ids.map(normalizeId)).size;
+}
+
+/**
+ * 引き当てのために id を正規化する。
+ *
+ * 桁数の決定（`isDistinctAt`）と引き当て（`matchById`）が**同じ関数を通る**ようにする。
+ * 別々に書くと、片方だけ直したときに「一覧に出た表記で引けない」状態が生まれる。
+ */
+function normalizeId(id: string): string {
+  return id.trim().toLowerCase();
 }
 
 /** id を指定の桁数に切る。元より長い桁数を指定してもそのまま返す。 */
@@ -79,17 +95,23 @@ export type IdMatch =
  * `none` にする（うっかり全件を候補に出しても利用者は困るだけ）。
  */
 export function matchById(entries: readonly Entry[], reference: string): IdMatch {
-  const normalized = reference.trim().toLowerCase();
+  const normalized = normalizeId(reference);
   if (normalized === "") {
     return { kind: "none" };
   }
 
-  const exact = entries.find((entry) => entry.id.toLowerCase() === normalized);
-  if (exact !== undefined) {
-    return { kind: "found", entry: exact };
+  // **完全一致が複数あっても1件を選ばない。** ケースだけが違う id が混ざっていると
+  // ここに2件来る。`find` で先頭を返すと、2件目は永久に参照できないまま、
+  // 打った人は別の記録を編集・削除したことに気づけない
+  const exact = entries.filter((entry) => normalizeId(entry.id) === normalized);
+  const [onlyExact] = exact;
+  if (onlyExact !== undefined) {
+    return exact.length === 1
+      ? { kind: "found", entry: onlyExact }
+      : { kind: "ambiguous", candidates: exact };
   }
 
-  const candidates = entries.filter((entry) => entry.id.toLowerCase().startsWith(normalized));
+  const candidates = entries.filter((entry) => normalizeId(entry.id).startsWith(normalized));
   const [only] = candidates;
 
   if (only === undefined) {

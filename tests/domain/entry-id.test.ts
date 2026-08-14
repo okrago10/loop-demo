@@ -182,4 +182,57 @@ describe("shortIdLength と matchById が噛み合う（一覧に出た表記で
       });
     }
   });
+
+  /**
+   * 大文字小文字だけが違う id。
+   *
+   * `randomUUID()` は小文字なので通常は起きないが、手で直した JSONL や、他の道具が
+   * 書いた記録では起き得る。**表示側がケースを区別して桁を決め、引き当て側が区別しない**と、
+   * 一覧では別物に見えるのに同じ記録を指す——取り違えそのものになる。
+   */
+  describe("大文字小文字だけが違う id（取り違えの防止）", () => {
+    // 桁数（12）と「ケースを区別すれば分かれる桁」（9）をずらしてある。
+    // 同じにすると、区別できたつもりの答えと最長の桁数が偶然一致して検査が効かない
+    const ids = ["aaaaaaaaAxxx", "aaaaaaaaaxxx"];
+
+    // **id 全体を打っても別の記録に当たらないこと。** 完全一致を `find` で1件だけ拾うと、
+    // ケース違いの2件のうち常に先頭が返り、2件目には到達できない（片方が編集・削除
+    // できないまま、打った人は成功したと思う）
+    it("id 全体を打っても別の記録を指さない", () => {
+      const entries = ids.map(entry);
+
+      for (const each of entries) {
+        const match = matchById(entries, each.id);
+
+        expect(match.kind === "found" ? match.entry.id : match.kind).not.toBe(
+          entries.find((other) => other.id !== each.id)?.id,
+        );
+      }
+    });
+
+    it("区別できないので曖昧として返す（1件を勝手に選ばない）", () => {
+      const entries = ids.map(entry);
+
+      expect(matchById(entries, "aaaaaaaaaxxx").kind).toBe("ambiguous");
+      expect(matchById(entries, "aaaaaaaaAxxx").kind).toBe("ambiguous");
+    });
+
+    // ケースを無視すると同じ id なので、**どこまで伸ばしても分かれない。** 既存の
+    // 「同じ id が2つある」場合と同じ扱いで、最小の桁数のまま伸ばさない。
+    // 伸ばしても引けるようにはならないので、長く見せる意味がない
+    it("伸ばしても分かれないので最小の桁数のまま", () => {
+      expect(shortIdLength(ids)).toBe(MIN_SHORT_ID_LENGTH);
+    });
+
+    // 桁を伸ばさない代わりに、引き当てが「曖昧」と答えることで取り違えを防いでいる。
+    // 短い表記で引いても、勝手に1件を選ばない
+    it("一覧に出た表記で引いても1件を勝手に選ばない", () => {
+      const entries = ids.map(entry);
+      const shown = ids.map((id) => shortenId(id, shortIdLength(ids)));
+
+      for (const each of shown) {
+        expect(matchById(entries, each).kind).toBe("ambiguous");
+      }
+    });
+  });
 });

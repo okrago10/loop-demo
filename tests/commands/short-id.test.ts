@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { UserError } from "../../src/cli.js";
 import { createEditCommand } from "../../src/commands/edit.js";
+import { listAllEntries } from "../../src/commands/lookup.js";
 import { createLogCommand } from "../../src/commands/log.js";
 import { createRmCommand } from "../../src/commands/rm.js";
 import { DEFAULT_CONFIG } from "../../src/domain/config.js";
@@ -207,6 +208,51 @@ describe("曖昧な指定を取り違えない（DoD）", () => {
     await expect(
       createEditCommand(deps(NOW)).run(["aaaaaaaa", "--note", "どっち"], io),
     ).rejects.toThrow(/候補/);
+  });
+
+  /**
+   * 大文字小文字だけが違う id。
+   *
+   * 引き当てはケースを区別しないので、**どこまで打っても曖昧なまま。**
+   * 短縮 id で候補を並べると同じ文字列が2つ並び、「もっと長く」に従っても解決しない。
+   */
+  describe("大文字小文字だけが違う id", () => {
+    const UPPER = "aaaaaaaaAxxx";
+    const LOWER = "aaaaaaaaaxxx";
+
+    it("id 全体を打っても別の記録を書き換えない", async () => {
+      await record(UPPER, local(13, 1), local(13, 2), "大文字の記録");
+      await record(LOWER, local(13, 3), local(13, 4), "小文字の記録");
+
+      await expect(
+        createEditCommand(deps(NOW)).run([LOWER, "--note", "直したい"], io),
+      ).rejects.toThrow(UserError);
+
+      const entries = await listAllEntries(store);
+      expect(entries.map((entry) => entry.note)).toEqual(["大文字の記録", "小文字の記録"]);
+    });
+
+    it("候補は区別できる表記（id 全体）で並べる", async () => {
+      await record(UPPER, local(13, 1), local(13, 2), "大文字の記録");
+      await record(LOWER, local(13, 3), local(13, 4), "小文字の記録");
+
+      await expect(
+        createEditCommand(deps(NOW)).run([LOWER, "--note", "直したい"], io),
+      ).rejects.toThrow(new RegExp(`${UPPER} / ${LOWER}`));
+    });
+
+    // 従えない助言を出さない
+    it("「もっと長く指定してください」とは言わない", async () => {
+      await record(UPPER, local(13, 1), local(13, 2), "大文字の記録");
+      await record(LOWER, local(13, 3), local(13, 4), "小文字の記録");
+
+      await expect(
+        createEditCommand(deps(NOW)).run([LOWER, "--note", "直したい"], io),
+      ).rejects.toThrow(/大文字小文字だけが違う/);
+      await expect(
+        createEditCommand(deps(NOW)).run([LOWER, "--note", "直したい"], io),
+      ).rejects.not.toThrow(/もっと長く/);
+    });
   });
 
   it("曖昧なときは記録を書き換えない", async () => {
