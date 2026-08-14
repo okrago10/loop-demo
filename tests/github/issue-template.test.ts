@@ -11,6 +11,17 @@ import {
 } from "./issue-template.js";
 
 const TEMPLATE_DIR = ".github/ISSUE_TEMPLATE";
+const SKILL_PATH = ".claude/skills/loop-run/SKILL.md";
+
+/**
+ * バックログ項目のテンプレートの名前。
+ *
+ * **検査はこのテンプレートだけを対象にする。** ディレクトリ内の全 `.yml` に必須
+ * フィールドを求めると、不具合速報のような別テンプレートを足した瞬間に
+ * `npm run check` が落ちる。それは `config.yml` で自由記述の Issue を残した方針
+ * （枠に収まらない Issue を殺さない）と矛盾する。
+ */
+const BACKLOG_NAME = "バックログ項目";
 
 /**
  * 検査用のテンプレート。**`REQUIRED_FIELDS` から組み立てず、id と見出しを直に書く。**
@@ -236,65 +247,94 @@ describe("方針に反するテンプレート", () => {
 });
 
 describe("実際のテンプレートが方針に従っている（DoD）", () => {
-  it("バックログ項目用のテンプレートが1本以上ある", async () => {
-    expect(await templateFiles()).not.toHaveLength(0);
+  it("バックログ項目用のテンプレートがちょうど1本ある", async () => {
+    const forms = await parseTemplates();
+
+    expect(forms.filter((form) => form.name === BACKLOG_NAME)).toHaveLength(1);
   });
 
   // 違反 0 件だけを見ると、解析が実ファイルのフィールドを1件も拾わなくなっても通る
   it("実テンプレートからフィールドを1件以上拾っている", async () => {
-    const forms = await parseTemplates();
-    const ids = forms.flatMap((form) => form.items.map((item) => item.id));
+    const ids = (await backlogForm()).items.map((item) => item.id);
 
     expect(ids.filter((id) => id !== undefined).length).toBeGreaterThan(0);
   });
 
-  it("すべてのテンプレートが方針に従っている", async () => {
-    const violations: string[] = [];
-
-    for (const form of await parseTemplates()) {
-      for (const violation of findTemplateViolations(form)) {
-        violations.push(`${violation.field}: ${violation.reason}`);
-      }
-    }
+  it("バックログのテンプレートが方針に従っている", async () => {
+    const violations = findTemplateViolations(await backlogForm()).map(
+      (violation) => `${violation.field}: ${violation.reason}`,
+    );
 
     expect(violations).toEqual([]);
   });
 
   for (const expected of REQUIRED_FIELDS) {
     it(`${expected.id}（${expected.label}）のフィールドがある`, async () => {
-      const forms = await parseTemplates();
-
-      expect(forms.some((form) => fieldById(form, expected.id) !== undefined)).toBe(true);
+      expect(fieldById(await backlogForm(), expected.id)).toBeDefined();
     });
   }
 
   it("依存は Issue 番号で書く形式になっている", async () => {
-    const [form] = await parseTemplates();
     const guidance =
-      fieldById(form ?? emptyForm(), "dependencies")?.attributes["description"] ?? "";
+      fieldById(await backlogForm(), "dependencies")?.attributes["description"] ?? "";
 
     expect(guidance).toContain("Issue 番号");
     expect(guidance).toContain("エピック");
   });
 
   it("DoD が唯一の完了定義であることが書かれている", async () => {
-    const [form] = await parseTemplates();
-    const field = fieldById(form ?? emptyForm(), "acceptance-criteria");
+    const field = fieldById(await backlogForm(), "acceptance-criteria");
 
     expect(field?.attributes["description"]).toContain("唯一の完了定義");
   });
 
   // 冒頭の案内にも書いておく。フィールドの説明は開いた人がその欄まで来ないと読まない
   it("冒頭の案内にも DoD が唯一の完了定義であることが書かれている", async () => {
-    const [form] = await parseTemplates();
-    const intro = (form?.items ?? []).find((item) => item.type === "markdown");
+    const intro = (await backlogForm()).items.find((item) => item.type === "markdown");
 
     expect(intro?.attributes["value"]).toContain("唯一の完了定義");
   });
 });
 
-function emptyForm(): IssueForm {
-  return { name: undefined, description: undefined, items: [] };
+/**
+ * ループがこのテンプレートから作った Issue を読めることの検査。
+ *
+ * **Issue Forms は各フィールドを `### <ラベル>` として本文に展開する。** 手で書いた
+ * Issue の `## 依存` とは見出しの深さが違うので、`SKILL.md` が `##` だけを読む指定の
+ * ままだと、**テンプレートから作った Issue のほうが読めない**。テンプレートを入れるだけ
+ * では目的（推測せずに読める）を達成しないため、両方を突き合わせる。
+ */
+describe("SKILL.md がこのテンプレートの見出しを読める（DoD）", () => {
+  // **指示そのものが両方を挙げていること**を見る。あとの説明文に `### 依存` が出るだけだと、
+  // 指示を `##` だけに戻しても検査が通ってしまう（実際に変異で通った）
+  it("依存のセクションを ## と ### の両方で読む指定になっている", async () => {
+    expect(await readFile(SKILL_PATH, "utf8")).toContain("`## 依存` または `### 依存`");
+  });
+
+  it("Forms が ### で展開することが SKILL.md に書かれている", async () => {
+    const skill = await readFile(SKILL_PATH, "utf8");
+
+    expect(skill).toContain("Issue Forms");
+    expect(skill).toContain("### <ラベル>");
+  });
+
+  // 展開後の見出しは label そのもの。label を変えたら SKILL.md 側も直す必要がある
+  it("SKILL.md が読む見出しがテンプレートの label と一致している", async () => {
+    const skill = await readFile(SKILL_PATH, "utf8");
+    const label = fieldById(await backlogForm(), "dependencies")?.attributes["label"];
+
+    expect(label).toBeDefined();
+    expect(skill).toContain(`### ${label ?? ""}`);
+  });
+});
+
+/** バックログ項目のテンプレート。無ければテストを失敗させる。 */
+async function backlogForm(): Promise<IssueForm> {
+  const found = (await parseTemplates()).filter((form) => form.name === BACKLOG_NAME);
+
+  expect(found, `name: ${BACKLOG_NAME} のテンプレートが1本だけ見つかること`).toHaveLength(1);
+
+  return found[0] ?? { name: undefined, description: undefined, items: [] };
 }
 
 async function templateFiles(): Promise<string[]> {
