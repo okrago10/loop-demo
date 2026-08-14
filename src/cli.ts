@@ -159,6 +159,14 @@ export async function run(argv: readonly string[], deps: CliDeps): Promise<numbe
   // **コマンドを走らせる前にヘルプを処理する。** 各コマンドに任せると、`--help` を
   // 見落とした実装が状態を変えてしまう（`tock stop --help` で打刻が終わる）。
   // ここで止めれば、どのコマンドでもヘルプが状態を変えないことが構造的に保証される。
+  //
+  // **位置を問わずトークンとして一致を見る。** オプションの値の位置にあっても
+  // ヘルプになる（`tock stop --note --help` / `tock week --offset -h`）。
+  // 値かどうかを見分けるには `CommandUsage` を辿って「値を取るオプションの次」を
+  // 飛ばす必要があるが、そうすると `--note --help` は「値が必要です」というエラーに
+  // なる。**ヘルプを見たい人にエラーを返すのがこの Issue の発端**なので、
+  // 取りこぼさない側に寄せた。作業名やメモに `--help` / `-h` と書きたい場合は、
+  // 値としては受け取れない（`--` 始まりの値は `takeOption` が元から拒否している）。
   if (rest.some((token) => HELP_FLAGS.has(token))) {
     writeAll(formatCommandHelp(command.name, command.summary, command.usage), deps.out);
     return EXIT_OK;

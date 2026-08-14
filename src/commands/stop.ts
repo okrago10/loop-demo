@@ -27,8 +27,8 @@ export function createStopCommand(deps: CommandDeps): Command {
     usage: USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      // 引数の検査を保存より先に済ませる。`tock stop --help` が使い方を見ようとして
-      // 打刻を終了してしまうのを防ぐ
+      // 引数の検査を保存より先に済ませる。打ち間違いのときに記録を変えないため。
+      // ヘルプはここに届く前に `cli.ts` が処理する（#42）
       const { value: note, rest } = takeOption(argv, "--note");
       const { at, rest: remaining } = resolveAt(rest, deps.now());
       rejectUnknownArgs(remaining, { command: "stop", usage: USAGE });

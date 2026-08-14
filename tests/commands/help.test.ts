@@ -219,6 +219,15 @@ describe("サブコマンドごとの --help（DoD）", () => {
     expect(out.join("\n")).toContain("使い方:");
   });
 
+  // `-h` は `--` 始まりでないので `takeOption` は値として受け取れてしまう。
+  // それでもヘルプを優先する（取りこぼさない側に寄せた判断を固定する）
+  it("値を取るオプションの直後に -h が来てもヘルプになる（境界）", async () => {
+    expect(await invoke(["week", "--offset", "-h"])).toBe(EXIT_OK);
+
+    expect(out.join("\n")).toContain("tock week");
+    expect(err).toEqual([]);
+  });
+
   it("オプションを1つも取らないコマンドでも使い方を出す（境界）", async () => {
     expect(await invoke(["today", "--help"])).toBe(EXIT_OK);
 
