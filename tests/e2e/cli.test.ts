@@ -3,7 +3,7 @@ import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 /**
  * E2E スモークテスト。
@@ -26,22 +26,38 @@ const CLI = join(ROOT, "dist", "cli.js");
 /** 子プロセスの起動を含むので、既定の5秒では足りない。 */
 const RUN_TIMEOUT_MS = 30_000;
 
+/** 子プロセスを強制終了する上限。Vitest の上限より短くして、残らないようにする。 */
+const KILL_TIMEOUT_MS = 20_000;
+
 interface RunResult {
   readonly code: number;
   readonly stdout: string;
   readonly stderr: string;
 }
 
-/** コマンドを実行して終了コードと出力を返す。失敗しても例外にしない（終了コードを検証するため）。 */
+/**
+ * コマンドを実行して終了コードと出力を返す。失敗しても例外にしない（終了コードを検証するため）。
+ *
+ * **自分でタイムアウトを持って子プロセスを殺す。** Vitest のタイムアウトはテストを
+ * 失敗させるだけで、ハングした `node dist/cli.js` は残る。CI でプロセスが居座ると、
+ * 次の実行やジョブの終了に影響する。
+ */
 function execute(
   command: string,
   args: readonly string[],
   env: Readonly<Record<string, string | undefined>>,
+  timeoutMs = KILL_TIMEOUT_MS,
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, [...args], { cwd: ROOT, env });
     let stdout = "";
     let stderr = "";
+
+    // Vitest の上限より短くする。先に殺しておかないと、テストが落ちたあとに残る
+    const killer = setTimeout(() => {
+      child.kill("SIGKILL");
+      stderr += `\n（${String(timeoutMs)}ms を超えたので強制終了した）`;
+    }, timeoutMs);
 
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8");
@@ -49,8 +65,12 @@ function execute(
     child.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk.toString("utf8");
     });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      clearTimeout(killer);
+      reject(error);
+    });
     child.on("close", (code) => {
+      clearTimeout(killer);
       resolve({ code: code ?? -1, stdout, stderr });
     });
   });
@@ -94,17 +114,24 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-beforeAll(async () => {
-  // **ここではビルドしない。** ビルドは `npm run check` の段（`npm run build`）が行う。
-  //
-  // テストの中でビルドすると、`tests/package-scripts.test.ts` と競合する。あちらは
-  // 各段が失敗することを確かめるために `src/` へ一時的に壊れたファイルを置くので、
-  // 並行して走ったビルドがそれを拾って落ちる（実際にこの形で落ちた）。
-  expect(
-    await exists(CLI),
-    `${CLI} がありません。npm run build（または npm run check）を先に実行してください`,
-  ).toBe(true);
-});
+/**
+ * ビルド済みの CLI があるか。**無ければ子プロセスを起こすテストを飛ばす。**
+ *
+ * **ここではビルドしない。** ビルドは `npm run check` の段（`npm run build`）が行う。
+ * テストの中でビルドすると `tests/package-scripts.test.ts` と競合する。あちらは各段が
+ * 失敗することを確かめるために `src/` へ一時的に壊れたファイルを置くので、並行して
+ * 走ったビルドがそれを拾って落ちる（実際にこの形で落ちた）。
+ *
+ * **飛ばすのは `npm test` 単体の契約を守るため。** `CLAUDE.md` は `npm test` を
+ * 「テストのみ」と定めており、先に `build` が要る形にすると開発中の `npm test` が
+ * 落ちる。`npm run check` と CI は必ず `build` を通ってからここへ来るので、
+ * そちらでは飛ばされない。
+ *
+ * **黙って飛ばして E2E が消えることはない。** `check` の段に `build` が含まれ、
+ * `test` より前にあることは `tests/package-scripts.test.ts` が検査している。
+ * `build` を外すと、この飛ばしが常態化する前にそちらが落ちる。
+ */
+const built = await exists(CLI);
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "tock-e2e-data-"));
@@ -116,7 +143,7 @@ afterEach(async () => {
   await rm(home, { recursive: true, force: true });
 });
 
-describe("通しシナリオ（DoD）", () => {
+describe.skipIf(!built)("通しシナリオ（DoD）", () => {
   it(
     "start → status → stop → today → export が通しで動く",
     async () => {
@@ -245,7 +272,7 @@ describe("通しシナリオ（DoD）", () => {
   );
 });
 
-describe("実ユーザーの ~/.tock を汚さない（DoD）", () => {
+describe.skipIf(!built)("実ユーザーの ~/.tock を汚さない（DoD）", () => {
   it(
     "TOCK_DIR を指定すると、そこにだけ書く",
     async () => {
@@ -315,5 +342,37 @@ describe("npm run check と CI に含まれている（DoD）", () => {
     const workflow = await readFile(join(ROOT, ".github", "workflows", "ci.yml"), "utf8");
 
     expect(workflow).toContain("npm run check");
+  });
+});
+
+/**
+ * 子プロセスの後始末。
+ *
+ * ここは `dist` を必要としない（`node -e` で完結する）ので、ビルドの有無に関わらず走る。
+ */
+describe("ハングした子プロセスを残さない", () => {
+  it("タイムアウトで強制終了し、その旨を出力に残す（境界）", async () => {
+    const result = await execute(
+      "node",
+      ["-e", "setInterval(() => {}, 1000)"],
+      { PATH: process.env["PATH"] },
+      200,
+    );
+
+    expect(result.stderr).toContain("強制終了");
+    expect(result.code).not.toBe(0);
+  });
+
+  it("すぐ終わる子プロセスは強制終了しない（回帰）", async () => {
+    const result = await execute(
+      "node",
+      ["-e", "process.stdout.write('ok')"],
+      { PATH: process.env["PATH"] },
+      5000,
+    );
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe("ok");
+    expect(result.stderr).not.toContain("強制終了");
   });
 });
