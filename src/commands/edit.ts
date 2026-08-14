@@ -54,9 +54,6 @@ export function createEditCommand(deps: CommandDeps): Command {
 
       const entries = await listAllEntries(deps.store);
       const target = resolveEntry(entries, id);
-      if (target === undefined) {
-        throw new UserError(`その id の記録がありません: ${id}`);
-      }
 
       const now = deps.now();
       const changes: EntryChanges = {
