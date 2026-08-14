@@ -1,4 +1,4 @@
-import type { Entry } from "./entry.js";
+import { type Entry, startedAt } from "./entry.js";
 import { overlapsPeriod, type Period } from "./period.js";
 
 /**
@@ -19,5 +19,5 @@ export function selectExportEntries(entries: readonly Entry[], period: Period): 
   const selected = entries.filter((entry) => overlapsPeriod(entry, period));
 
   // toSorted は元の配列を書き換えず、同じ鍵の要素の順序を保つ（開始時刻が同じ記録は保存順）
-  return selected.toSorted((a, b) => Date.parse(a.start) - Date.parse(b.start));
+  return selected.toSorted((a, b) => startedAt(a).getTime() - startedAt(b).getTime());
 }

@@ -61,12 +61,29 @@ describe("formatCsvLines の各列", () => {
     expect(columns(line)[3]).toBe("0.5");
   });
 
-  it("割り切れない秒は小数第2位までにする", () => {
+  it("割り切れない秒でも桁を落とさない（行ごとに丸めない）", () => {
     const row = entry({ start: "2026-08-13T09:00:00.000Z", end: "2026-08-13T09:01:01.000Z" });
 
     const [, line = ""] = formatCsvLines([row]);
 
-    expect(columns(line)[3]).toBe("1.02");
+    expect(columns(line)[3]).toBe(String(61 / 60));
+  });
+
+  it("duration_min を足した合計が、実際の経過時間の合計と一致する", () => {
+    // 行ごとに丸めると誤差が同じ向きに積み上がる。1秒の記録40件で
+    // 実際の 0.667分 に対し、小数第2位に丸めた列の合計は 0.8分 になっていた
+    const rows = Array.from({ length: 40 }, (_index, offset) =>
+      entry({
+        start: `2026-08-13T09:${String(offset).padStart(2, "0")}:00.000Z`,
+        end: `2026-08-13T09:${String(offset).padStart(2, "0")}:01.000Z`,
+      }),
+    );
+
+    const total = formatCsvLines(rows)
+      .slice(1)
+      .reduce((sum, line) => sum + Number(columns(line)[3]), 0);
+
+    expect(total).toBeCloseTo((40 * 1000) / 60_000, 10);
   });
 
   it("長さ 0 の記録は 0 と出す（境界）", () => {
@@ -158,6 +175,21 @@ describe("formatCsvLines のエスケープ", () => {
     const [, line = ""] = formatCsvLines([row]);
 
     expect(line.endsWith(',"""至急""の対応"')).toBe(true);
+  });
+
+  it("カンマを含むタグも1つの列に収める", () => {
+    // normalizeTag は空白を弾くがカンマは通す（`#a,b` は妥当なタグ）。
+    // タグ列の引用を外すと、この行だけ列がずれる
+    const row = entry({
+      start: "2026-08-13T09:00:00.000Z",
+      end: "2026-08-13T10:00:00.000Z",
+      tags: ["a,b", "work"],
+      note: "設計",
+    });
+
+    const [, line = ""] = formatCsvLines([row]);
+
+    expect(line).toBe(`${row.id},${row.start},${row.end ?? ""},60,"a,b work",設計`);
   });
 
   it("改行を含む作業名は引用符で囲む（行数は増える）", () => {
