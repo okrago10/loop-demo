@@ -15,6 +15,7 @@ import { createStopCommand } from "./commands/stop.js";
 import { createSummaryCommand, createTodayCommand } from "./commands/summary.js";
 import { createSwitchCommand } from "./commands/switch.js";
 import { createWeekCommand } from "./commands/week.js";
+import { type CommandUsage, formatCommandHelp } from "./format/help.js";
 import { randomId } from "./id.js";
 import { createJsonConfigStore, loadEffectiveConfig } from "./store/config-store.js";
 import { createJsonlStore } from "./store/jsonl-store.js";
@@ -61,6 +62,13 @@ export interface Command {
   readonly name: string;
   /** `--help` の一覧に出す1行説明。 */
   readonly summary: string;
+  /**
+   * そのコマンドの使い方（位置引数・オプション・例）。
+   *
+   * **受け付ける引数の宣言はここが唯一。** `tock <command> --help` の表示と
+   * `rejectUnknownArgs` の検査が同じものを読むので、片方だけ更新されて食い違うことがない。
+   */
+  readonly usage: CommandUsage;
   /**
    * コマンド名より後ろの引数を受け取って実行する。
    *
@@ -146,6 +154,14 @@ export async function run(argv: readonly string[], deps: CliDeps): Promise<numbe
     deps.err("");
     writeAll(usageLines(deps.commands), deps.err);
     return EXIT_USAGE;
+  }
+
+  // **コマンドを走らせる前にヘルプを処理する。** 各コマンドに任せると、`--help` を
+  // 見落とした実装が状態を変えてしまう（`tock stop --help` で打刻が終わる）。
+  // ここで止めれば、どのコマンドでもヘルプが状態を変えないことが構造的に保証される。
+  if (rest.some((token) => HELP_FLAGS.has(token))) {
+    writeAll(formatCommandHelp(command.name, command.summary, command.usage), deps.out);
+    return EXIT_OK;
   }
 
   try {

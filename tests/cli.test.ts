@@ -21,10 +21,16 @@ function collector(): {
   };
 }
 
-function command(name: string, summary: string, body?: Command["run"]): Command {
+function command(
+  name: string,
+  summary: string,
+  body?: Command["run"],
+  usage: Command["usage"] = { options: [] },
+): Command {
   return {
     name,
     summary,
+    usage,
     run: body ?? ((): void => undefined),
   };
 }
@@ -92,18 +98,25 @@ describe("--help", () => {
     expect(err).toEqual([]);
   });
 
-  it("コマンド名のあとに --help があってもコマンドに渡す（全体のヘルプにしない）", async () => {
+  // #42 で契約を変えた。以前はコマンドに `--help` をそのまま渡していたが、
+  // 受け取り側が見落とすと状態が変わる（`tock stop --help` で打刻が終わる）ため、
+  // コマンドを走らせる前にここで処理する
+  it("コマンド名のあとの --help はそのコマンドのヘルプになり、コマンドを実行しない", async () => {
     const received: string[][] = [];
-    const { io } = collector();
+    const { out, io } = collector();
     const commands = [
       command("start", "作業を開始する", (argv) => {
         received.push([...argv]);
       }),
     ];
 
-    await run(["start", "--help"], deps(io, commands));
+    const code = await run(["start", "--help"], deps(io, commands));
 
-    expect(received).toEqual([["--help"]]);
+    expect(code).toBe(EXIT_OK);
+    expect(received).toEqual([]);
+    expect(out.join("\n")).toContain("tock start");
+    // 全体のヘルプ（コマンド一覧）にはしない
+    expect(out.join("\n")).not.toContain("コマンド:");
   });
 });
 

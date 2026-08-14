@@ -7,6 +7,7 @@ import { formatCsvLines, formatJsonLines } from "../format/export.js";
 import type { LoadConfig } from "../store/config-store.js";
 import { type CommandDeps, rejectUnknownArgs, takeOption } from "./args.js";
 import { ALL_TIME } from "./lookup.js";
+import type { CommandUsage } from "../format/help.js";
 
 /** 書き出せる形式。 */
 const FORMATTERS = {
@@ -36,19 +37,25 @@ const FORMAT_NAMES = Object.keys(FORMATTERS);
  * 保存先を自前で扱うと、上書きの確認や書き込み失敗の扱いをこのコマンドが
  * 抱えることになる。標準出力に出しておけば `head` や他のコマンドにも繋げられる。
  */
+/** `tock export` の使い方。 */
+const USAGE: CommandUsage = {
+  options: [
+    { name: "--format", argument: "csv|json", summary: "書き出す形式（必須）" },
+    { name: "--period", argument: "期間", summary: "期間で絞る（省略すると全期間）" },
+  ],
+  examples: ["tock export --format csv", "tock export --format json --period this-week"],
+};
+
 export function createExportCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
     name: "export",
     summary: "記録を CSV / JSON で書き出す",
+    usage: USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
       const { value: formatValue, rest: afterFormat } = takeOption(argv, "--format");
       const { value: periodValue, rest } = takeOption(afterFormat, "--period");
-      rejectUnknownArgs(rest, {
-        command: "export",
-        allowedOptions: ["--format", "--period"],
-        allowPositional: false,
-      });
+      rejectUnknownArgs(rest, { command: "export", usage: USAGE });
 
       // 引数の検査を済ませてからファイルに触る。打ち間違いのときに設定ファイルや記録を
       // 読む必要はなく、失敗の理由も引数だけで決まる。
