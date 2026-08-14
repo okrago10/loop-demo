@@ -265,3 +265,83 @@ describe("status の経過時間は注入した現在時刻で決まる", () => 
     expect(out[0]).toBe(`設計 ${expected}`);
   });
 });
+
+/**
+ * 開始時刻が未来の記録。
+ *
+ * `start --at` の未来指定は #13 で禁止しているので通常の操作では作れないが、
+ * **開始時にマシンの時計が進んでいて、あとで NTP に補正された**場合に起きる。
+ * 時計が正しくなった側から見ると記録の `start` が未来になる。
+ *
+ * `durationMs` は `asOf < start` で素の `Error` を投げる（domain として正しい）。
+ * それをそのまま流すと内部エラー（終了コード 2）になり、domain 内部の文言が
+ * 利用者に出る。**捕まえて翻訳するのは呼び出し側の責務。**
+ */
+describe("開始時刻が未来の記録（DoD）", () => {
+  const NOW = new Date("2026-08-12T09:00:00Z");
+  const FUTURE = "2027-01-01T00:00:00.000Z";
+
+  /** 未来の開始時刻を持つ実行中エントリを直に保存する（コマンド経由では作れない）。 */
+  async function saveFutureRunning(): Promise<void> {
+    await store.append({ id: "skewed", start: FUTURE, tags: ["work"], note: "時計がずれた" });
+  }
+
+  it("status は UserError（終了コード 1）になる", async () => {
+    await saveFutureRunning();
+
+    await expect(createStatusCommand(deps(NOW)).run([], io)).rejects.toThrow(UserError);
+  });
+
+  it("メッセージに記録の開始時刻と「未来」であることが含まれる", async () => {
+    await saveFutureRunning();
+
+    await expect(createStatusCommand(deps(NOW)).run([], io)).rejects.toThrow(
+      new RegExp(`未来.*${FUTURE.replace(/[.]/g, "\\.")}|${FUTURE.replace(/[.]/g, "\\.")}.*未来`),
+    );
+  });
+
+  it("--short でも出力は1行に収まる", async () => {
+    await saveFutureRunning();
+
+    let failure: unknown;
+    try {
+      await createStatusCommand(deps(NOW)).run(["--short"], io);
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(UserError);
+    // cli.ts は messageOf(error) を 1 回だけ err に渡すので、改行を含まなければ1行になる
+    expect(failure instanceof Error ? failure.message : "").not.toContain("\n");
+  });
+
+  it("失敗しても stdout には何も出さない（途中まで出さない）", async () => {
+    await saveFutureRunning();
+
+    await expect(createStatusCommand(deps(NOW)).run([], io)).rejects.toThrow(UserError);
+    expect(out).toEqual([]);
+  });
+
+  it("start == now（同時刻）は正常に 0s と表示される（境界）", async () => {
+    await store.append({ id: "same", start: NOW.toISOString(), tags: ["work"], note: "ちょうど" });
+
+    await createStatusCommand(deps(NOW)).run([], io);
+
+    expect(out).toContain("経過: 0s");
+  });
+
+  it("start == now は --short でも 0s（境界）", async () => {
+    await store.append({ id: "same", start: NOW.toISOString(), tags: ["work"], note: "ちょうど" });
+
+    await createStatusCommand(deps(NOW)).run(["--short"], io);
+
+    expect(out).toEqual(["ちょうど #work 0s"]);
+  });
+
+  it("1ミリ秒でも未来なら弾く（境界）", async () => {
+    const oneMsAhead = new Date(NOW.getTime() + 1).toISOString();
+    await store.append({ id: "ahead", start: oneMsAhead, tags: [], note: "1ミリ秒未来" });
+
+    await expect(createStatusCommand(deps(NOW)).run([], io)).rejects.toThrow(UserError);
+  });
+});
