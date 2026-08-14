@@ -4,9 +4,16 @@ import { durationMs } from "../domain/period.js";
 import { formatDuration } from "../format/duration.js";
 import { type CommandDeps, rejectUnknownArgs, takeFlag } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
+import { assertStartNotInFuture } from "./entry-guard.js";
 
 /** `--short` で実行中が無いときに出す1行。 */
 const NOTHING_RUNNING_SHORT = "-";
+
+/** `tock status` の使い方。 */
+const USAGE: CommandUsage = {
+  options: [{ name: "--short", summary: "1行だけ出す（プロンプトやステータスバー向け）" }],
+  examples: ["tock status", "tock status --short"],
+};
 
 /**
  * 実行中の作業を表示する。
@@ -17,12 +24,6 @@ const NOTHING_RUNNING_SHORT = "-";
  *
  * 読むだけで何も書かない。
  */
-/** `tock status` の使い方。 */
-const USAGE: CommandUsage = {
-  options: [{ name: "--short", summary: "1行だけ出す（プロンプトやステータスバー向け）" }],
-  examples: ["tock status", "tock status --short"],
-};
-
 export function createStatusCommand(deps: CommandDeps): Command {
   return {
     name: "status",
@@ -33,8 +34,17 @@ export function createStatusCommand(deps: CommandDeps): Command {
       const { present: short, rest } = takeFlag(argv, "--short");
       rejectUnknownArgs(rest, { command: "status", usage: USAGE });
 
+      const now = deps.now();
       const running = await deps.store.findRunning();
-      const lines = short ? shortLines(running, deps.now()) : longLines(running, deps.now());
+
+      // **長さを計算する前に弾く。** `durationMs` は `asOf < start` で素の `Error` を
+      // 投げるので、そのまま流すと内部エラー（終了コード 2）になり、domain 内部の文言が
+      // 利用者に出る。判定と文言は `entry-guard.ts` に1つだけ置いてある（#44）
+      if (running !== undefined) {
+        assertStartNotInFuture(running, now);
+      }
+
+      const lines = short ? shortLines(running, now) : longLines(running, now);
 
       for (const line of lines) {
         io.out(line);

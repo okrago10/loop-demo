@@ -81,6 +81,22 @@ describe("長さの算出", () => {
     expect(() => durationMs(e, new Date("2026-08-12T00:00:00Z"))).toThrow(/asOf/);
   });
 
+  // #44 で `status` 側に利用者向けの翻訳を足したが、**domain 側は変えない。**
+  // ここが `UserError` を投げ始めると domain が cli を知ることになり、依存の向きが逆になる
+  it("asOf が start より前のときの例外は domain の素の Error（UserError にしない）", () => {
+    const e = entry("2026-08-12T01:00:00Z");
+
+    let thrown: unknown;
+    try {
+      durationMs(e, new Date("2026-08-12T00:00:00Z"));
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown instanceof Error ? thrown.name : "").toBe("Error");
+  });
+
   it("asOf が start と同時刻なら 0（境界）", () => {
     const e = entry("2026-08-12T01:00:00Z");
 
