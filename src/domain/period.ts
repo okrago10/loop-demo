@@ -162,6 +162,37 @@ export function overlaps(a: Entry, b: Entry): boolean {
   return aStart < bEnd && bStart < aEnd;
 }
 
+/**
+ * 記録が期間に重なるか。期間は半開区間 `[start, end)`。
+ *
+ * **実行中の記録は終端が未定なので、開始以降ずっと続くものとして扱う**（`overlaps` と同じ）。
+ * これにより「範囲より前に始まって、まだ終わっていない」記録が落ちない。この取りこぼしは
+ * 過去に `listByRange` で実際に起きている。
+ *
+ * 長さ 0 の記録は、半開区間の一般式では何とも重ならない。`clipToPeriod` と同じく
+ * 「開始が期間内なら残す」に揃える。記録したものが一覧から黙って消えるほうが不都合が大きい。
+ *
+ * **`overlaps`（エントリ同士）と違い、長さ 0 を落とさない。** あちらは二重打刻の検出が
+ * 目的で、瞬間の記録は二重打刻にならない。こちらは集計・一覧・書き出しのための抽出で、
+ * 記録が黙って消えないことを優先する。
+ *
+ * 選び出しの意味を1箇所に置くために、`log`（#16）と `export`（#23）は同じこの関数を通す。
+ * 同じ判定を各所に書き写すと、片方だけ直したときに「一覧には出るが書き出されない」
+ * といった食い違いが生まれる。
+ */
+export function overlapsPeriod(entry: Entry, period: Period): boolean {
+  const from = startMs(entry);
+  const to = endMs(entry) ?? Number.POSITIVE_INFINITY;
+  const periodStart = period.start.getTime();
+  const periodEnd = period.end.getTime();
+
+  if (from === to) {
+    return from >= periodStart && from < periodEnd;
+  }
+
+  return from < periodEnd && to > periodStart;
+}
+
 function assertValidPeriod(period: Period): void {
   if (Number.isNaN(period.start.getTime()) || Number.isNaN(period.end.getTime())) {
     throw new Error("期間の境界が不正な Date です");

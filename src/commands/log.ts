@@ -24,8 +24,12 @@ const DECIMAL_POSITIVE_INTEGER = /^[1-9]\d*$/;
  * `Store` には「全件返す」操作が無く、`listByRange` に範囲を渡すしかない。
  * 期間指定なしの `log` は「いつの記録でも新しい順に直近 N 件」なので、
  * 範囲で落とさないよう最大幅を渡す。
+ *
+ * **`export`（#23）も同じものを必要とするため公開している。** 書き写すと、
+ * 片方だけ直したときに「一覧には出るが書き出されない」記録が生まれる。
+ * この細工そのものは `Store` の制約への回避策で、**#57 で解消される**。
  */
-const ALL_TIME: Period = { start: new Date(-8.64e15), end: new Date(8.64e15) };
+export const ALL_TIME: Period = { start: new Date(-8.64e15), end: new Date(8.64e15) };
 
 /**
  * 記録を新しい順に一覧表示する。
