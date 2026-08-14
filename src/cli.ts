@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { createEditCommand } from "./commands/edit.js";
+import { createExportCommand } from "./commands/export.js";
 import { createLogCommand } from "./commands/log.js";
 import { createRmCommand } from "./commands/rm.js";
 import { createStartCommand } from "./commands/start.js";
@@ -205,6 +206,7 @@ function buildCommands(): readonly Command[] {
     createWeekCommand(deps),
     createEditCommand(deps),
     createRmCommand(deps, confirmOnStdin),
+    createExportCommand(deps),
   ];
 }
 
