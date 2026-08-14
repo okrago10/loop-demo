@@ -2,6 +2,7 @@ import { type CliIo, type Command, UserError } from "../cli.js";
 import type { Entry } from "../domain/entry.js";
 import { type CommandDeps, rejectUnknownArgs, takeFlag } from "./args.js";
 import { shortenId, shortIdLength } from "../domain/entry-id.js";
+import type { CommandUsage } from "../format/help.js";
 import { listAllEntries, resolveEntry } from "./lookup.js";
 
 /**
@@ -25,18 +26,22 @@ export type Confirm = (question: string) => Promise<boolean>;
  * 中止は**エラーにしない**（終了コード 0）。「消すのをやめた」は正常な操作であり、
  * `status` が実行中なしを 0 で返すのと同じ考え方。
  */
+/** `tock rm` の使い方。 */
+const USAGE: CommandUsage = {
+  positional: "<id>",
+  options: [{ name: "--yes", summary: "確認を尋ねずに削除する（対話端末でないときは必須）" }],
+  examples: ["tock rm 26d141cc", "tock rm 26d141cc --yes"],
+};
+
 export function createRmCommand(deps: CommandDeps, confirm: Confirm): Command {
   return {
     name: "rm",
     summary: "記録を削除する",
+    usage: USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
       const { present: skipConfirm, rest } = takeFlag(argv, "--yes");
-      rejectUnknownArgs(rest, {
-        command: "rm",
-        allowedOptions: ["--yes"],
-        allowPositional: true,
-      });
+      rejectUnknownArgs(rest, { command: "rm", usage: USAGE });
 
       const id = takeId(rest);
 

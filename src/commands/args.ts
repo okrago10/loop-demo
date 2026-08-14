@@ -1,5 +1,6 @@
 import { UserError } from "../cli.js";
 import { parseTags } from "../domain/tag.js";
+import { type CommandUsage, formatUsageBlock } from "../format/help.js";
 import type { Store } from "../store/store.js";
 
 /**
@@ -70,30 +71,39 @@ export function takeFlag(
 /**
  * オプションを取り出した後に余ったトークンを検査し、解釈できないものを弾く。
  *
- * 黙って捨てると `tock stop --help` が使い方の表示ではなく打刻の終了として成功する。
- * ヘルプを見ようとして状態が変わるのは事故なので、保存の前にエラーにする。
+ * 黙って捨てると、打ち間違えたオプションが無視されて意図と違う結果になる。
+ * 保存の前にエラーにする。
  *
- * `start` は残りを作業名として使うため、`allowPositional` を true にして
+ * **受け付ける範囲は `CommandUsage` から引く。** ヘルプと別に一覧を持つと、
+ * 片方だけ更新されて「ヘルプに出ているのに受け取られない」オプションが生まれる（#42）。
+ * 位置引数を取るかどうかも同じ宣言（`positional` の有無）で決まる。
+ *
+ * `start` のように位置引数を取るコマンドでは、残りを作業名として使うため
  * `--` 始まりのトークンだけを弾く。作業名の中に現れる `--`（`"設計 -- 前半"` のように
  * 引用符でまとめて渡されたもの）は1つのトークンの途中なので影響を受けない。
+ *
+ * **エラーには使い方をそのまま添える。** 何が使えるのかを別途調べさせない。
  */
 export function rejectUnknownArgs(
   argv: readonly string[],
   options: {
     readonly command: string;
-    readonly allowedOptions: readonly string[];
-    readonly allowPositional: boolean;
+    readonly usage: CommandUsage;
   },
 ): void {
-  const unknown = options.allowPositional ? argv.filter((token) => token.startsWith("--")) : argv;
+  const allowPositional = options.usage.positional !== undefined;
+  const unknown = allowPositional ? argv.filter((token) => token.startsWith("--")) : argv;
 
   if (unknown.length === 0) {
     return;
   }
 
   throw new UserError(
-    `tock ${options.command} が解釈できない引数です: ${unknown.join(" ")}` +
-      `（使えるオプション: ${options.allowedOptions.join(" ")}）`,
+    [
+      `tock ${options.command} が解釈できない引数です: ${unknown.join(" ")}`,
+      "",
+      ...formatUsageBlock(options.command, options.usage),
+    ].join("\n"),
   );
 }
 

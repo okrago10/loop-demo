@@ -5,6 +5,7 @@ import { endedAt, startedAt } from "../domain/entry.js";
 import { normalizeTag } from "../domain/tag.js";
 import { type CommandDeps, rejectUnknownArgs, resolveClockTimeOn, takeOption } from "./args.js";
 import { shortenId, shortIdLength } from "../domain/entry-id.js";
+import type { CommandUsage } from "../format/help.js";
 import { listAllEntries, resolveEntry } from "./lookup.js";
 
 /**
@@ -24,21 +25,30 @@ import { listAllEntries, resolveEntry } from "./lookup.js";
  * 記録の**日付を別の日に移す**操作は入れていない。`--start 2026-08-11T09:00` のような
  * 指定方法を決める必要があり、時刻の表記全体（#45）と揃えて決めるのが筋だから。
  */
+/** `tock edit` の使い方。 */
+const USAGE: CommandUsage = {
+  positional: "<id>",
+  options: [
+    { name: "--start", argument: "HH:MM", summary: "開始時刻を直す（記録の開始日に適用する）" },
+    { name: "--end", argument: "HH:MM", summary: "終了時刻を直す（記録の終了日に適用する）" },
+    { name: "--tags", argument: '"a b"', summary: "タグを置き換える（空文字で消す）" },
+    { name: "--note", argument: "テキスト", summary: "作業名を置き換える" },
+  ],
+  examples: ['tock edit 26d141cc --note "定例会議"', "tock edit 26d141cc --end 10:45"],
+};
+
 export function createEditCommand(deps: CommandDeps): Command {
   return {
     name: "edit",
     summary: "記録を修正する",
+    usage: USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
       const { value: startValue, rest: afterStart } = takeOption(argv, "--start");
       const { value: endValue, rest: afterEnd } = takeOption(afterStart, "--end");
       const { value: tagsValue, rest: afterTags } = takeOption(afterEnd, "--tags");
       const { value: noteValue, rest } = takeOption(afterTags, "--note");
-      rejectUnknownArgs(rest, {
-        command: "edit",
-        allowedOptions: ["--start", "--end", "--tags", "--note"],
-        allowPositional: true,
-      });
+      rejectUnknownArgs(rest, { command: "edit", usage: USAGE });
 
       const id = takeId(rest);
       if (

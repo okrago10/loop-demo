@@ -3,6 +3,7 @@ import { createEntry, type Entry } from "../domain/entry.js";
 import { durationMs } from "../domain/period.js";
 import { formatDuration } from "../format/duration.js";
 import { type CommandDeps, parseDescription, rejectUnknownArgs, resolveAt } from "./args.js";
+import type { CommandUsage } from "../format/help.js";
 
 /**
  * 実行中の作業を終了して、そのまま次の作業を開始する。
@@ -13,18 +14,24 @@ import { type CommandDeps, parseDescription, rejectUnknownArgs, resolveAt } from
  * **前のエントリの `end` と新しいエントリの `start` は同一時刻にする。** 2コマンドに
  * 分けて打つと隙間が空き、合計が実態より短くなる。それを避けるのがこのコマンドの目的。
  */
+/** `tock switch` の使い方。 */
+const USAGE: CommandUsage = {
+  positional: "[作業名]",
+  options: [
+    { name: "--at", argument: "HH:MM", summary: "切り替える時刻を指定する（省略すると現在時刻）" },
+  ],
+  examples: ['tock switch "レビュー #work"', 'tock switch "会議 #会議" --at 14:00'],
+};
+
 export function createSwitchCommand(deps: CommandDeps): Command {
   return {
     name: "switch",
     summary: "実行中の作業を終了して次の作業を開始する",
+    usage: USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
       const { at, rest } = resolveAt(argv, deps.now());
-      rejectUnknownArgs(rest, {
-        command: "switch",
-        allowedOptions: ["--at"],
-        allowPositional: true,
-      });
+      rejectUnknownArgs(rest, { command: "switch", usage: USAGE });
       const { tags, note } = parseDescription(rest.join(" "));
 
       const running = await deps.store.findRunning();
