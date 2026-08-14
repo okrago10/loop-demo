@@ -136,6 +136,16 @@ describe("並列依存の扱いが SKILL.md に書かれている（DoD）", () 
     expect(base).toContain("互いを含まない");
   });
 
+  // 1ペアの祖先関係だけで「一直線」と判定すると、3本目の並列依存が base から落ちる。
+  // 「1本が残りすべてを含む」という言い方が消えたら気づけるようにする
+  it("一直線の判定が「1本が残りすべてを祖先として含む」ことになっている", () => {
+    const found = paragraphs(section(skill, BASE_HEADING) ?? "").filter(
+      (block) => block.includes("祖先") && /すべて|全部/.test(block),
+    );
+
+    expect(found).not.toHaveLength(0);
+  });
+
   it("#13 のケースが例として書かれている（同じ判断を再現できる）", () => {
     expect(section(skill, BASE_HEADING) ?? "").toContain("#13");
   });
