@@ -1,4 +1,5 @@
 import { formatDay } from "../domain/day.js";
+import { shortenId } from "../domain/entry-id.js";
 import type { LogRow } from "../domain/log.js";
 import { pad, widestWidth } from "./columns.js";
 import { formatDuration } from "./duration.js";
@@ -23,19 +24,23 @@ const GAP = "  ";
  *
  * **ID を先頭に置く。** 編集・削除（#17）で使うため、行の先頭にあると拾いやすい。
  *
+ * **ID は `idLength` 桁に切って出す（#58）。** 桁数を呼び出し側から受け取るのは、
+ * 「保存されている全記録の中で重複しない長さ」でなければ、ここに出た文字列を
+ * そのまま `edit` / `rm` に渡せないため。表示だけ短くして参照できない状態にはしない。
+ *
  * 作業名とタグを最後に置くのは、長さが揃わない列だから。前に置くと、後ろの列の桁が
  * 作業名の長さに引きずられて読みづらくなる。
  *
  * 該当0件は**エラーではなく1行のメッセージ**にする。「今日はまだ記録していない」は
  * 正常な状態であり、`status` が実行中なしを終了コード 0 で返すのと同じ考え方。
  */
-export function formatLogLines(rows: readonly LogRow[]): string[] {
+export function formatLogLines(rows: readonly LogRow[], idLength: number): string[] {
   if (rows.length === 0) {
     return [EMPTY_MESSAGE];
   }
 
   const cells = rows.map((row) => ({
-    id: row.entryId,
+    id: shortenId(row.entryId, idLength),
     day: formatDay(row.start),
     range: timeRange(row),
     duration: formatDuration(row.durationMs),
