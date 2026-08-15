@@ -50,8 +50,13 @@ export interface WeekSummary {
  * （domain から現在時刻を読まない）。`asOf` より後の曜日は 0 のままになる
  * ——まだ経っていない時間を数えないため。
  */
-export function summarizeWeek(entries: readonly Entry[], week: Period, asOf: Date): WeekSummary {
-  const dayPeriods = daysOfWeek(week);
+export function summarizeWeek(
+  entries: readonly Entry[],
+  week: Period,
+  asOf: Date,
+  timeZone: string,
+): WeekSummary {
+  const dayPeriods = daysOfWeek(week, timeZone);
   const daily = dayPeriods.map((day) => summarize(entries, day, asOf));
 
   return {

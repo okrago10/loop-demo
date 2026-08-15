@@ -8,6 +8,7 @@ import { createConfigCommand } from "../../src/commands/config.js";
 import { DEFAULT_CONFIG } from "../../src/domain/config.js";
 import { DEFAULT_MAX_RUNNING_HOURS } from "../../src/domain/overrun.js";
 import { type ConfigStore, createJsonConfigStore } from "../../src/store/config-store.js";
+import { RUNTIME_TZ } from "../support/config.js";
 
 let dir = "";
 let path = "";
@@ -74,6 +75,8 @@ describe("config get", () => {
       "rounding.unitMinutes=",
       "rounding.mode=",
       `maxRunningHours=${String(DEFAULT_MAX_RUNNING_HOURS)}`,
+      // **実効値が出る。** 設定を書いていなければ実行環境のゾーンが解決されている（#64）
+      `timezone=${RUNTIME_TZ}`,
     ]);
     expect(err).toEqual([]);
   });
@@ -102,8 +105,8 @@ describe("config get", () => {
   });
 
   it("知らないキーは拒否する（DoD）", async () => {
-    await expect(command().run(["get", "timezone"], io)).rejects.toThrow(UserError);
-    await expect(command().run(["get", "timezone"], io)).rejects.toThrow(/weekStartsOn/);
+    await expect(command().run(["get", "locale"], io)).rejects.toThrow(UserError);
+    await expect(command().run(["get", "locale"], io)).rejects.toThrow(/weekStartsOn/);
   });
 
   it("余分な引数はエラーにする", async () => {
@@ -145,8 +148,8 @@ describe("config set", () => {
   });
 
   it("知らないキーは拒否し、ファイルを作らない（DoD）", async () => {
-    await expect(command().run(["set", "timezone", "Asia/Tokyo"], io)).rejects.toThrow(UserError);
-    await expect(command().run(["set", "timezone", "Asia/Tokyo"], io)).rejects.toThrow(/timezone/);
+    await expect(command().run(["set", "locale", "Asia/Tokyo"], io)).rejects.toThrow(UserError);
+    await expect(command().run(["set", "locale", "Asia/Tokyo"], io)).rejects.toThrow(/locale/);
 
     await expect(readFile(path, "utf8")).rejects.toThrow();
   });
@@ -252,7 +255,7 @@ describe("set が知らないキーを消さない（レビュー指摘）", () 
   });
 
   it("知らないキーの警告は「消しません」と伝える（実際に消さないことと揃える）", async () => {
-    await writeFile(path, JSON.stringify({ timezone: "Asia/Tokyo" }), "utf8");
+    await writeFile(path, JSON.stringify({ locale: "ja-JP" }), "utf8");
 
     await command().run(["get"], io);
 

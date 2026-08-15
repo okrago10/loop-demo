@@ -19,6 +19,7 @@ import { DEFAULT_MAX_RUNNING_HOURS, hoursToMs, overrunWarning } from "../../src/
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
 import type { LoadConfig } from "../../src/store/config-store.js";
 import type { Store } from "../../src/store/store.js";
+import { RUNTIME_TZ, testLoadConfig } from "../support/config.js";
 
 /**
  * 止め忘れ対策のコマンド側（#24）。
@@ -44,15 +45,22 @@ const io = {
   },
 };
 
-const defaultConfig: LoadConfig = () => Promise.resolve({ config: DEFAULT_CONFIG, warnings: [] });
+const defaultConfig: LoadConfig = () =>
+  Promise.resolve({ config: { ...DEFAULT_CONFIG, timezone: RUNTIME_TZ }, warnings: [] });
 
 /** 上限を短くした設定（既定と違う値が効いていることを見るため）。 */
 const twoHourLimit: LoadConfig = () =>
-  Promise.resolve({ config: { ...DEFAULT_CONFIG, maxRunningHours: 2 }, warnings: [] });
+  Promise.resolve({
+    config: { ...DEFAULT_CONFIG, timezone: RUNTIME_TZ, maxRunningHours: 2 },
+    warnings: [],
+  });
 
 /** 読めなかった値の警告を返す設定。警告が利用者まで届くかを見る。 */
 const noisyConfig: LoadConfig = () =>
-  Promise.resolve({ config: DEFAULT_CONFIG, warnings: ["設定が読めません"] });
+  Promise.resolve({
+    config: { ...DEFAULT_CONFIG, timezone: RUNTIME_TZ },
+    warnings: ["設定が読めません"],
+  });
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "tock-overrun-"));
@@ -89,7 +97,7 @@ function deps(now: Date) {
 
 /** 実行中の記録を1件作る。 */
 async function startAt(start: Date): Promise<void> {
-  await createStartCommand(deps(start)).run(["設計 #work"], io);
+  await createStartCommand(deps(start), testLoadConfig()).run(["設計 #work"], io);
   out = [];
   err = [];
 }
@@ -214,18 +222,21 @@ describe("stop --auto（DoD）", () => {
   it("設定を渡さなくても既定の上限で動く", async () => {
     await startAt(local(12, 9));
 
-    await createStopCommand(deps(local(12, 22))).run(["--auto"], io);
+    await createStopCommand(deps(local(12, 22)), testLoadConfig()).run(["--auto"], io);
 
     const [stopped] = await store.listAll();
     expect(stopped?.end).toBe(local(12, 17).toISOString());
   });
 
-  it("設定の警告は stderr に出す（`--auto` のときだけ設定を読む）", async () => {
+  it("設定の警告は stderr に出す（`--auto` でなくても設定は読む・#64）", async () => {
+    // 以前は `--auto` のときだけ読んでいたが、`--at` をどのゾーンで解釈するかが
+    // 設定で決まるようになったため常に読む。読む以上、警告も隠さない
     await startAt(local(12, 9));
 
     await createStopCommand(deps(local(12, 22)), noisyConfig).run([], io);
-    expect(err).toEqual([]);
+    expect(err).toContain("設定が読めません");
 
+    err = [];
     await startAt(local(13, 9));
     await createStopCommand(deps(local(13, 22)), noisyConfig).run(["--auto"], io);
     expect(err).toContain("設定が読めません");

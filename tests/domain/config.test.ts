@@ -15,6 +15,7 @@ import {
   withConfigValue,
 } from "../../src/domain/config.js";
 import { DEFAULT_WEEK_STARTS_ON } from "../../src/domain/week.js";
+import { RUNTIME_TZ } from "../support/config.js";
 
 describe("設定の既定値", () => {
   it("週の開始曜日の既定は domain の既定と同じ（二重に持たない）", () => {
@@ -104,11 +105,14 @@ describe("parseConfigFile の壊れた設定（DoD）", () => {
   });
 
   it("知らないキーは無視して警告を出す（正しいキーは読む）", () => {
-    const { config, warnings } = parseConfigFile({ weekStartsOn: 0, timezone: "Asia/Tokyo" });
+    const { config, warnings } = parseConfigFile({
+      weekStartsOn: 0,
+      locale: "ja-JP",
+    });
 
     expect(config.weekStartsOn).toBe(0);
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("timezone");
+    expect(warnings[0]).toContain("locale");
   });
 
   it("壊れたキーと知らないキーが同時にあれば警告は2件になる", () => {
@@ -151,7 +155,10 @@ describe("overrideFromEnv（優先順位: 環境変数 > 設定ファイル）",
   });
 
   it("設定ファイルの警告は消さずに引き継ぐ", () => {
-    const withWarning = { config: DEFAULT_CONFIG, warnings: ["設定ファイルが壊れています"] };
+    const withWarning = {
+      config: { ...DEFAULT_CONFIG, timezone: RUNTIME_TZ },
+      warnings: ["設定ファイルが壊れています"],
+    };
 
     const { warnings } = overrideFromEnv(withWarning, { TOCK_WEEK_STARTS_ON: "6" });
 
@@ -170,8 +177,8 @@ describe("assertConfigKey（未知のキーの拒否・DoD）", () => {
   });
 
   it("知らないキーは Error にし、使えるキーを示す", () => {
-    expect(() => assertConfigKey("timezone")).toThrow(/timezone/);
-    expect(() => assertConfigKey("timezone")).toThrow(/weekStartsOn/);
+    expect(() => assertConfigKey("locale")).toThrow(/locale/);
+    expect(() => assertConfigKey("locale")).toThrow(/weekStartsOn/);
   });
 
   it("大文字小文字が違うキーも拒否する（別のキーとして扱わない）", () => {
@@ -263,6 +270,7 @@ describe("Config の形と CONFIG_KEYS が一致している", () => {
       weekStartsOn: 1,
       rounding: { unitMinutes: 15, mode: "ceil" },
       maxRunningHours: 8,
+      timezone: "Asia/Tokyo",
     };
 
     expect(Object.keys(populated).toSorted()).toEqual([...topLevel].toSorted());

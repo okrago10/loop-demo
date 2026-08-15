@@ -350,15 +350,15 @@ function buildRuntime(): Pick<CliDeps, "commands" | "noticesBeforeRun"> {
 
   return {
     commands: [
-      createStartCommand(deps),
+      createStartCommand(deps, loadConfig),
       createStopCommand(deps, loadConfig),
       createStatusCommand(deps),
-      createSwitchCommand(deps),
+      createSwitchCommand(deps, loadConfig),
       createTodayCommand(deps, loadConfig, terminal),
       createSummaryCommand(deps, loadConfig, terminal),
       createLogCommand(deps, loadConfig),
       createWeekCommand(deps, loadConfig, terminal),
-      createEditCommand(deps),
+      createEditCommand(deps, loadConfig),
       createRmCommand(deps, confirmOnStdin),
       createExportCommand(deps, loadConfig),
       createConfigCommand(configStore, process.env),

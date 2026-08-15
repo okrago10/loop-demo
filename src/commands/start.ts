@@ -1,6 +1,13 @@
 import { type Command, type CliIo, UserError } from "../cli.js";
 import { createEntry } from "../domain/entry.js";
-import { type CommandDeps, parseDescription, rejectUnknownArgs, resolveAt } from "./args.js";
+import type { LoadConfig } from "../store/config-store.js";
+import {
+  type CommandDeps,
+  loadWarnedConfig,
+  parseDescription,
+  rejectUnknownArgs,
+  resolveAt,
+} from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 
 /**
@@ -18,15 +25,19 @@ const USAGE: CommandUsage = {
   examples: ['tock start "設計 #work"', 'tock start "会議 #会議 #proj/tock" --at 09:30'],
 };
 
-export function createStartCommand(deps: CommandDeps): Command {
+export function createStartCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
     name: "start",
     summary: "作業を開始する",
     usage: USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
+      // **設定を先に読む（#64）。** `--at` をどのゾーンで解釈するかが設定で決まるので、
+      // 引数の解決より前に要る
+      const config = await loadWarnedConfig(loadConfig, io);
+
       // 引数の検査を保存より先に済ませる。打ち間違いで状態が変わらないようにする
-      const { at, rest } = resolveAt(argv, deps.now());
+      const { at, rest } = resolveAt(argv, deps.now(), config.timezone);
       rejectUnknownArgs(rest, { command: "start", usage: USAGE });
       const { tags, note } = parseDescription(rest.join(" "));
 

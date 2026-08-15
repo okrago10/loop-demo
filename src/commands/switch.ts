@@ -2,7 +2,14 @@ import { type CliIo, type Command, UserError } from "../cli.js";
 import { createEntry, type Entry } from "../domain/entry.js";
 import { durationMs } from "../domain/period.js";
 import { formatDuration } from "../format/duration.js";
-import { type CommandDeps, parseDescription, rejectUnknownArgs, resolveAt } from "./args.js";
+import type { LoadConfig } from "../store/config-store.js";
+import {
+  type CommandDeps,
+  loadWarnedConfig,
+  parseDescription,
+  rejectUnknownArgs,
+  resolveAt,
+} from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 
 /**
@@ -23,14 +30,16 @@ const USAGE: CommandUsage = {
   examples: ['tock switch "レビュー #work"', 'tock switch "会議 #会議" --at 14:00'],
 };
 
-export function createSwitchCommand(deps: CommandDeps): Command {
+export function createSwitchCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
     name: "switch",
     summary: "実行中の作業を終了して次の作業を開始する",
     usage: USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const { at, rest } = resolveAt(argv, deps.now());
+      // **設定を先に読む（#64）。** `--at` の解釈にゾーンが要る
+      const config = await loadWarnedConfig(loadConfig, io);
+      const { at, rest } = resolveAt(argv, deps.now(), config.timezone);
       rejectUnknownArgs(rest, { command: "switch", usage: USAGE });
       const { tags, note } = parseDescription(rest.join(" "));
 

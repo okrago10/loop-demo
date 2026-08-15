@@ -1,4 +1,5 @@
 import { DEFAULT_MAX_RUNNING_HOURS, hoursToMs } from "./overrun.js";
+import { isTimeZone } from "./timezone.js";
 import type { RoundingMode, RoundingRule } from "./rounding.js";
 import { assertWeekStartsOn, DEFAULT_WEEK_STARTS_ON } from "./week.js";
 
@@ -31,6 +32,7 @@ export const CONFIG_KEYS = [
   "rounding.unitMinutes",
   "rounding.mode",
   "maxRunningHours",
+  "timezone",
 ] as const;
 
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
@@ -57,6 +59,15 @@ export interface Config {
    * 切れるようにすると機能そのものを無効にできてしまう。
    */
   readonly maxRunningHours?: number;
+  /**
+   * 日・週の境切りと `--at` の解釈に使うタイムゾーン（IANA 名。#64）。
+   *
+   * **未設定は「実行環境のゾーン」を意味するが、その解決はここで行わない。**
+   * domain は実行環境を読めないので、`store/config-store.ts` の `loadEffectiveConfig`
+   * が読み込みの最後に埋める。コマンドが受け取る時点では必ず値が入っている
+   * （`ResolvedConfig`）。
+   */
+  readonly timezone?: string;
 }
 
 /**
@@ -166,6 +177,9 @@ export function describeConfigKey(key: ConfigKey): string {
     case "maxRunningHours": {
       return "1以上の整数（時間）";
     }
+    case "timezone": {
+      return "IANA のタイムゾーン名（例: Asia/Tokyo）";
+    }
     default: {
       // キーを増やして case を書き忘れると、ここで型検査が落ちる
       const unhandled: never = key;
@@ -188,6 +202,9 @@ function fromJson(key: ConfigKey, value: unknown): ConfigValue | undefined {
     }
     case "maxRunningHours": {
       return isPositiveInteger(value) ? value : undefined;
+    }
+    case "timezone": {
+      return typeof value === "string" && isTimeZone(value) ? value : undefined;
     }
     default: {
       const unhandled: never = key;
@@ -223,6 +240,11 @@ export function parseConfigText(key: ConfigKey, text: string): ConfigValue | und
         ? Number(text)
         : undefined;
     }
+    case "timezone": {
+      // **判定は `Intl` に任せる**（`domain/timezone.ts`）。ゾーンの一覧は地域ごとに
+      // 増減するので、自前の表を持つと実際に使えるゾーンと食い違う
+      return isTimeZone(text) ? text : undefined;
+    }
     default: {
       const unhandled: never = key;
       throw new Error(`設定キーの読み取りがありません: ${JSON.stringify(unhandled)}`);
@@ -245,6 +267,9 @@ function withValue(config: Config, key: ConfigKey, value: ConfigValue): Config {
     case "maxRunningHours": {
       return { ...config, maxRunningHours: asNumber(key, value) };
     }
+    case "timezone": {
+      return { ...config, timezone: asTimeZone(key, value) };
+    }
     default: {
       const unhandled: never = key;
       throw new Error(`設定キーの書き込みがありません: ${JSON.stringify(unhandled)}`);
@@ -262,6 +287,14 @@ function withValue(config: Config, key: ConfigKey, value: ConfigValue): Config {
 function asNumber(key: ConfigKey, value: ConfigValue): number {
   if (typeof value !== "number") {
     throw new Error(`${key} の値が数値ではありません: ${JSON.stringify(value)}`);
+  }
+
+  return value;
+}
+
+function asTimeZone(key: ConfigKey, value: ConfigValue): string {
+  if (typeof value !== "string" || !isTimeZone(value)) {
+    throw new Error(`${key} の値がタイムゾーン名ではありません: ${JSON.stringify(value)}`);
   }
 
   return value;
@@ -308,6 +341,11 @@ export function formatConfigValue(config: Config, key: ConfigKey): string {
       // **未設定でも空にしない。** 丸めと違い、書かなくても効いている値（既定 8）が
       // あるので、空を見せると「上限が無い」と読める
       return String(config.maxRunningHours ?? DEFAULT_MAX_RUNNING_HOURS);
+    }
+    case "timezone": {
+      // 解決済みの設定（`ResolvedConfig`）を渡せば実効値が出る。未解決の `Config` では
+      // 空になるが、実行環境のゾーンをここで引くことはできない（domain に I/O を置かない）
+      return config.timezone ?? "";
     }
     default: {
       const unhandled: never = key;
@@ -504,6 +542,9 @@ function describeDefault(key: ConfigKey): string {
     case "rounding.unitMinutes":
     case "rounding.mode": {
       return "既定（丸めません）";
+    }
+    case "timezone": {
+      return "既定（実行環境のタイムゾーン）";
     }
     default: {
       const unhandled: never = key;

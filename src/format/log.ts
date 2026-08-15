@@ -34,14 +34,18 @@ const GAP = "  ";
  * 該当0件は**エラーではなく1行のメッセージ**にする。「今日はまだ記録していない」は
  * 正常な状態であり、`status` が実行中なしを終了コード 0 で返すのと同じ考え方。
  */
-export function formatLogLines(rows: readonly LogRow[], idLength: number): string[] {
+export function formatLogLines(
+  rows: readonly LogRow[],
+  idLength: number,
+  timeZone: string,
+): string[] {
   if (rows.length === 0) {
     return [EMPTY_MESSAGE];
   }
 
   const cells = rows.map((row) => ({
     id: shortenId(row.entryId, idLength),
-    day: formatDay(row.start),
+    day: formatDay(row.start, timeZone),
     range: timeRange(row),
     duration: formatDuration(row.durationMs),
     label: labelOf(row),

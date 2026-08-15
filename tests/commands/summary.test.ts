@@ -11,9 +11,11 @@ import { DEFAULT_CONFIG } from "../../src/domain/config.js";
 import type { LoadConfig } from "../../src/store/config-store.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
 import type { Store } from "../../src/store/store.js";
+import { RUNTIME_TZ, testLoadConfig } from "../support/config.js";
 
 /** 設定を書いていない状態。丸めの既定（丸めない）を含む。 */
-const defaultConfig: LoadConfig = () => Promise.resolve({ config: DEFAULT_CONFIG, warnings: [] });
+const defaultConfig: LoadConfig = () =>
+  Promise.resolve({ config: { ...DEFAULT_CONFIG, timezone: RUNTIME_TZ }, warnings: [] });
 
 let dir = "";
 let store: Store;
@@ -64,8 +66,8 @@ function local(day: number, hours: number, minutes = 0): Date {
 
 /** 指定した時刻に開始して指定した時刻に終了した記録を作る。 */
 async function record(start: Date, end: Date, description: string): Promise<void> {
-  await createStartCommand(deps(start)).run([description], io);
-  await createStopCommand(deps(end)).run([], io);
+  await createStartCommand(deps(start), testLoadConfig()).run([description], io);
+  await createStopCommand(deps(end), testLoadConfig()).run([], io);
   out = [];
 }
 
@@ -121,7 +123,7 @@ describe("today", () => {
   });
 
   it("実行中の記録は現在までを数える（未来を数えない）", async () => {
-    await createStartCommand(deps(local(13, 9, 0))).run(["設計 #work"], io);
+    await createStartCommand(deps(local(13, 9, 0)), testLoadConfig()).run(["設計 #work"], io);
     out = [];
 
     await createTodayCommand(deps(local(13, 10, 30)), defaultConfig).run([], io);
@@ -130,7 +132,7 @@ describe("today", () => {
   });
 
   it("前日から続いている実行中の記録は、その日の分だけ数える", async () => {
-    await createStartCommand(deps(local(12, 22, 0))).run(["徹夜 #work"], io);
+    await createStartCommand(deps(local(12, 22, 0)), testLoadConfig()).run(["徹夜 #work"], io);
     out = [];
 
     await createTodayCommand(deps(local(13, 2, 0)), defaultConfig).run([], io);
@@ -229,7 +231,7 @@ describe("summary --day", () => {
   });
 
   it("読むだけで記録を変えない", async () => {
-    await createStartCommand(deps(local(13, 9, 0))).run(["設計 #work"], io);
+    await createStartCommand(deps(local(13, 9, 0)), testLoadConfig()).run(["設計 #work"], io);
     out = [];
 
     await createSummaryCommand(deps(local(13, 10, 0)), defaultConfig).run([], io);

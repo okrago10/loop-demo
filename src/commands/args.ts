@@ -1,6 +1,8 @@
-import { UserError } from "../cli.js";
+import { type CliIo, UserError } from "../cli.js";
 import { parseTags } from "../domain/tag.js";
+import { instantOf, wallClockIn } from "../domain/timezone.js";
 import { type CommandUsage, formatUsageBlock } from "../format/help.js";
+import type { LoadConfig, ResolvedConfig } from "../store/config-store.js";
 import type { Store } from "../store/store.js";
 
 /**
@@ -112,7 +114,8 @@ export function rejectUnknownArgs(
  *
  * **利用者の環境のタイムゾーンで解釈する。** 日付は `now` の日を使う。「9時半」と
  * 打った人が期待するのはローカルの 9 時半であり、UTC で解釈すると別の時刻になる。
- * タイムゾーンを設定で選べるようにするのは #22 の担当範囲。
+ * **どのタイムゾーンで解釈するかは引数で受け取る（#64）。** 設定キー `timezone` の値が
+ * ここまで渡ってくる。実行環境の TZ を直接読むと、設定を変えても `--at` だけ効かない。
  *
  * 日付を跨いだ指定（前日の 23:00 に開始して 01:00 に停止するなど）はできない。
  * 当日の時刻として解決するため、開始より前になる場合は呼び出し側で弾かれる。
@@ -122,8 +125,8 @@ export function rejectUnknownArgs(
  * でき、素の `stop` が常に `end < start` で失敗して停止できなくなる（次の `start` も
  * 実行中を理由に拒否されるため、打ち間違いから手詰まりになる）。
  */
-export function resolveClockTime(value: string, now: Date): Date {
-  return resolveClockTimeOn(value, now, now, "--at");
+export function resolveClockTime(value: string, now: Date, timeZone: string): Date {
+  return resolveClockTimeOn(value, now, now, "--at", timeZone);
 }
 
 /**
@@ -136,39 +139,63 @@ export function resolveClockTime(value: string, now: Date): Date {
  * 未来を弾く規則は共通。`--at` と同じ理由で、未来の開始時刻を持つ記録を作らせない。
  * オプション名を引数で受けるのは、エラーメッセージに実際に打ったオプションを出すため。
  */
-export function resolveClockTimeOn(value: string, onDate: Date, now: Date, label: string): Date {
+export function resolveClockTimeOn(
+  value: string,
+  onDate: Date,
+  now: Date,
+  label: string,
+  timeZone: string,
+): Date {
   const match = CLOCK_TIME.exec(value);
   if (match === null) {
     throw new UserError(`${label} は HH:MM または HH:MM:SS で指定してください: ${value}`);
   }
 
   const [, hours, minutes, seconds] = match;
-  const at = new Date(onDate);
-  at.setHours(Number(hours), Number(minutes), Number(seconds ?? "0"), 0);
+  // **`onDate` の「そのゾーンでの日付」に時刻を載せる。** `setHours` は実行環境の TZ で
+  // 動くので、設定が別のゾーンだと1日ずれた瞬間を指しうる
+  const day = wallClockIn(onDate, timeZone);
+  const at = instantOf(
+    {
+      year: day.year,
+      month: day.month,
+      day: day.day,
+      hours: Number(hours),
+      minutes: Number(minutes),
+      seconds: Number(seconds ?? "0"),
+    },
+    timeZone,
+  );
 
   if (at.getTime() > now.getTime()) {
     throw new UserError(
-      `${label} に未来の時刻は指定できません: ${value}（現在は ${formatClockTime(now)}）`,
+      `${label} に未来の時刻は指定できません: ${value}（現在は ${formatClockTime(now, timeZone)}）`,
     );
   }
 
   return at;
 }
 
-/** エラーメッセージ用に、ローカルの壁時計を `HH:MM:SS` で表す。 */
-function formatClockTime(time: Date): string {
-  const parts = [time.getHours(), time.getMinutes(), time.getSeconds()];
+/** エラーメッセージ用に、指定したゾーンの壁時計を `HH:MM:SS` で表す。 */
+function formatClockTime(time: Date, timeZone: string): string {
+  const wall = wallClockIn(time, timeZone);
 
-  return parts.map((part) => String(part).padStart(2, "0")).join(":");
+  return [wall.hours, wall.minutes, wall.seconds]
+    .map((part) => String(part).padStart(2, "0"))
+    .join(":");
 }
 
 /**
  * `--at` があればその時刻、なければ `now` を返す。
  */
-export function resolveAt(argv: readonly string[], now: Date): { at: Date; rest: string[] } {
+export function resolveAt(
+  argv: readonly string[],
+  now: Date,
+  timeZone: string,
+): { at: Date; rest: string[] } {
   const { value, rest } = takeOption(argv, "--at");
 
-  return { at: value === undefined ? now : resolveClockTime(value, now), rest };
+  return { at: value === undefined ? now : resolveClockTime(value, now, timeZone), rest };
 }
 
 /**
@@ -190,4 +217,21 @@ export function parseDescription(text: string): {
   } catch (error) {
     throw new UserError(error instanceof Error ? error.message : String(error));
   }
+}
+
+/**
+ * 設定を読み、警告を stderr に出して解決済みの設定を返す。
+ *
+ * **すべてのコマンドがこの形で読む。** 各コマンドが自前で警告を回すと、出す順番や
+ * 出し忘れがコマンドごとに食い違う（`stop` だけ `--auto` のときしか出していなかった）。
+ *
+ * 返るのは `ResolvedConfig` なので、`timezone` は必ず入っている（#64）。
+ */
+export async function loadWarnedConfig(loadConfig: LoadConfig, io: CliIo): Promise<ResolvedConfig> {
+  const { config, warnings } = await loadConfig();
+  for (const warning of warnings) {
+    io.err(warning);
+  }
+
+  return config;
 }

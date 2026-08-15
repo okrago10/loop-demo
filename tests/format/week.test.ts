@@ -4,6 +4,7 @@ import type { WeekSummary } from "../../src/domain/week-summary.js";
 // 全角の数え方をテスト側に書き写さない。写すと本体と食い違ったまま通ってしまう
 import { displayWidth as displayWidthOf } from "../../src/format/columns.js";
 import { formatWeekLines } from "../../src/format/week.js";
+import { RUNTIME_TZ } from "../support/config.js";
 
 function local(day: number): Date {
   const date = new Date(2000, 0, 1);
@@ -54,14 +55,20 @@ const EMPTY: WeekSummary = {
 
 describe("formatWeekLines の見出し", () => {
   it("週の範囲を1行目に出す", () => {
-    const lines = formatWeekLines(summaryOf([{ tag: "work", dailyMs: [HOUR, 0, 0, 0, 0, 0, 0] }]));
+    const lines = formatWeekLines(
+      summaryOf([{ tag: "work", dailyMs: [HOUR, 0, 0, 0, 0, 0, 0] }]),
+      RUNTIME_TZ,
+    );
 
     expect(lines[0]).toContain("2026-08-10");
     expect(lines[0]).toContain("2026-08-16");
   });
 
   it("曜日の見出しを週の初日から並べる（月曜始まり）", () => {
-    const lines = formatWeekLines(summaryOf([{ tag: "work", dailyMs: [HOUR, 0, 0, 0, 0, 0, 0] }]));
+    const lines = formatWeekLines(
+      summaryOf([{ tag: "work", dailyMs: [HOUR, 0, 0, 0, 0, 0, 0] }]),
+      RUNTIME_TZ,
+    );
     const header = lines[1] ?? "";
 
     expect(header.indexOf("月")).toBeGreaterThanOrEqual(0);
@@ -73,6 +80,7 @@ describe("formatWeekLines の見出し", () => {
     const sundayFirst = [9, 10, 11, 12, 13, 14, 15].map(local);
     const lines = formatWeekLines(
       summaryOf([{ tag: "work", dailyMs: [HOUR, 0, 0, 0, 0, 0, 0] }], { days: sundayFirst }),
+      RUNTIME_TZ,
     );
     const header = lines[1] ?? "";
 
@@ -80,7 +88,10 @@ describe("formatWeekLines の見出し", () => {
   });
 
   it("見出しに週合計の列がある", () => {
-    const lines = formatWeekLines(summaryOf([{ tag: "work", dailyMs: [HOUR, 0, 0, 0, 0, 0, 0] }]));
+    const lines = formatWeekLines(
+      summaryOf([{ tag: "work", dailyMs: [HOUR, 0, 0, 0, 0, 0, 0] }]),
+      RUNTIME_TZ,
+    );
 
     expect(lines[1]).toContain("合計");
   });
@@ -93,6 +104,7 @@ describe("formatWeekLines の中身", () => {
         { tag: "work", dailyMs: [HOUR, 0, 0, 0, 0, 0, 0] },
         { tag: "会議", dailyMs: [0, 30 * MINUTE, 0, 0, 0, 0, 0] },
       ]),
+      RUNTIME_TZ,
     );
 
     expect(lines.some((line) => line.startsWith("work"))).toBe(true);
@@ -100,7 +112,10 @@ describe("formatWeekLines の中身", () => {
   });
 
   it("記録のない曜日を 0 として表示する（DoD）", () => {
-    const lines = formatWeekLines(summaryOf([{ tag: "work", dailyMs: [HOUR, 0, 0, 0, 0, 0, 0] }]));
+    const lines = formatWeekLines(
+      summaryOf([{ tag: "work", dailyMs: [HOUR, 0, 0, 0, 0, 0, 0] }]),
+      RUNTIME_TZ,
+    );
     const workLine = lines.find((line) => line.startsWith("work")) ?? "";
 
     // 月だけ 1h、残る6日は 0s
@@ -111,6 +126,7 @@ describe("formatWeekLines の中身", () => {
   it("行の末尾に週合計が出る", () => {
     const lines = formatWeekLines(
       summaryOf([{ tag: "work", dailyMs: [HOUR, HOUR, 0, 0, 0, 0, 0] }]),
+      RUNTIME_TZ,
     );
     const workLine = lines.find((line) => line.startsWith("work")) ?? "";
 
@@ -120,6 +136,7 @@ describe("formatWeekLines の中身", () => {
   it("最後の行に日合計を出す", () => {
     const lines = formatWeekLines(
       summaryOf([{ tag: "work", dailyMs: [HOUR, 0, 2 * HOUR, 0, 0, 0, 0] }]),
+      RUNTIME_TZ,
     );
     const totalLine = lines.at(-1) ?? "";
 
@@ -134,6 +151,7 @@ describe("formatWeekLines の中身", () => {
       summaryOf([{ tag: "work", dailyMs: [HOUR, 0, 0, 0, 0, 0, 0] }], {
         untaggedMs: [0, 0, 30 * MINUTE, 0, 0, 0, 0],
       }),
+      RUNTIME_TZ,
     );
 
     expect(lines.some((line) => line.startsWith("(タグなし)"))).toBe(true);
@@ -144,6 +162,7 @@ describe("formatWeekLines の中身", () => {
       summaryOf([{ tag: "work", dailyMs: [HOUR, 0, 0, 0, 0, 0, 0] }], {
         untaggedMs: [0, 0, 30 * MINUTE, 0, 0, 0, 0],
       }),
+      RUNTIME_TZ,
     );
 
     const untaggedIndex = lines.findIndex((line) => line.startsWith("(タグなし)"));
@@ -153,20 +172,23 @@ describe("formatWeekLines の中身", () => {
   });
 
   it("タグなしが無ければその行を出さない（境界）", () => {
-    const lines = formatWeekLines(summaryOf([{ tag: "work", dailyMs: [HOUR, 0, 0, 0, 0, 0, 0] }]));
+    const lines = formatWeekLines(
+      summaryOf([{ tag: "work", dailyMs: [HOUR, 0, 0, 0, 0, 0, 0] }]),
+      RUNTIME_TZ,
+    );
 
     expect(lines.some((line) => line.startsWith("(タグなし)"))).toBe(false);
   });
 
   it("記録が1件も無い週は「記録がありません」を出す（境界）", () => {
-    const lines = formatWeekLines(EMPTY);
+    const lines = formatWeekLines(EMPTY, RUNTIME_TZ);
 
     expect(lines[0]).toContain("2026-08-10");
     expect(lines.some((line) => line.includes("記録がありません"))).toBe(true);
   });
 
   it("記録が無い週では表を出さない（0 だけの表を見せない）", () => {
-    expect(formatWeekLines(EMPTY).some((line) => line.startsWith("合計"))).toBe(false);
+    expect(formatWeekLines(EMPTY, RUNTIME_TZ).some((line) => line.startsWith("合計"))).toBe(false);
   });
 });
 
@@ -189,6 +211,7 @@ describe("formatWeekLines の桁揃え", () => {
         { tag: "work", dailyMs: [HOUR, 0, 0, 0, 0, 0, 0] },
         { tag: "会議", dailyMs: [2 * HOUR, 0, 0, 0, 0, 0, 0] },
       ]),
+      RUNTIME_TZ,
     );
 
     const ascii = lines.find((line) => line.startsWith("work")) ?? "";
@@ -205,6 +228,7 @@ describe("formatWeekLines の桁揃え", () => {
         { tag: "aa", dailyMs: [HOUR + 30 * MINUTE, 2 * HOUR, 0, 0, 0, 0, 0] },
         { tag: "bb", dailyMs: [0, 3 * HOUR, 0, 0, 0, 0, 0] },
       ]),
+      RUNTIME_TZ,
     );
 
     const first = lines.find((line) => line.startsWith("aa")) ?? "";
@@ -217,6 +241,7 @@ describe("formatWeekLines の桁揃え", () => {
   it("行末に空白を残さない", () => {
     const lines = formatWeekLines(
       summaryOf([{ tag: "work", dailyMs: [HOUR + 30 * MINUTE, 0, 0, 0, 0, 0, 0] }]),
+      RUNTIME_TZ,
     );
 
     for (const line of lines) {

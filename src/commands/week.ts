@@ -73,7 +73,7 @@ export function createWeekCommand(
 
       const weekStartsOn = fromOption ?? config.weekStartsOn;
       const now = deps.now();
-      const week = weekPeriodOf(now, { offsetWeeks, weekStartsOn });
+      const week = weekPeriodOf(now, { timeZone: config.timezone, offsetWeeks, weekStartsOn });
 
       // 読み出す範囲を週そのものにしているのは、listByRange が範囲に重なるエントリを
       // （日跨ぎ・実行中のものも含めて）返すため。曜日への振り分けは summarizeWeek が行う
@@ -82,8 +82,16 @@ export function createWeekCommand(
       // **ヒートマップに丸めは当てない。** 濃淡は値の比であって表示する数字ではなく、
       // 丸めると短い作業が消えて図の意味が変わる（丸めは #63 の「表示する数字」の話）
       const lines = heatmap
-        ? formatHeatmapLines(summarizeHeatmap(entries, week, now), terminal)
-        : formatWeekLines(summarizeWeek(entries, week, now), roundingRuleOf(config));
+        ? formatHeatmapLines(
+            summarizeHeatmap(entries, week, now, config.timezone),
+            terminal,
+            config.timezone,
+          )
+        : formatWeekLines(
+            summarizeWeek(entries, week, now, config.timezone),
+            config.timezone,
+            roundingRuleOf(config),
+          );
 
       for (const line of lines) {
         io.out(line);

@@ -1,10 +1,17 @@
 import { type Command, type CliIo, UserError } from "../cli.js";
-import { DEFAULT_CONFIG, maxRunningMsOf } from "../domain/config.js";
+import { maxRunningMsOf } from "../domain/config.js";
 import { createEntry } from "../domain/entry.js";
 import { autoStopAt } from "../domain/overrun.js";
 import { durationMs } from "../domain/period.js";
 import { formatDuration } from "../format/duration.js";
-import { type CommandDeps, rejectUnknownArgs, resolveAt, takeFlag, takeOption } from "./args.js";
+import {
+  type CommandDeps,
+  loadWarnedConfig,
+  rejectUnknownArgs,
+  resolveAt,
+  takeFlag,
+  takeOption,
+} from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 import type { LoadConfig } from "../store/config-store.js";
 
@@ -33,7 +40,7 @@ const USAGE: CommandUsage = {
   ],
 };
 
-export function createStopCommand(deps: CommandDeps, loadConfig?: LoadConfig): Command {
+export function createStopCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
     name: "stop",
     summary: "作業を終了する",
@@ -44,7 +51,10 @@ export function createStopCommand(deps: CommandDeps, loadConfig?: LoadConfig): C
       // ヘルプはここに届く前に `cli.ts` が処理する（#42）
       const { present: auto, rest: afterAuto } = takeFlag(argv, "--auto");
       const { value: note, rest } = takeOption(afterAuto, "--note");
-      const { at, rest: remaining } = resolveAt(rest, deps.now());
+      // **設定を先に読む（#64）。** `--at` の解釈にゾーンが要る。`--auto` のときだけ
+      // 読む形だったが、そうすると `--at` のゾーンが指定の有無で変わってしまう
+      const config = await loadWarnedConfig(loadConfig, io);
+      const { at, rest: remaining } = resolveAt(rest, deps.now(), config.timezone);
       rejectUnknownArgs(remaining, { command: "stop", usage: USAGE });
 
       // **`--at` と `--auto` は両立しない。** どちらも終了時刻を決める指定なので、
@@ -56,7 +66,7 @@ export function createStopCommand(deps: CommandDeps, loadConfig?: LoadConfig): C
       }
 
       // 上限は設定から来る。`--auto` を使わないなら読む必要がない
-      const limitMs = auto ? maxRunningMsOf(await warnedConfig(loadConfig, io)) : 0;
+      const limitMs = auto ? maxRunningMsOf(config) : 0;
 
       // **判断と書き込みを1つの操作にする（#11）。** 別々にすると、2つのプロセスが
       // 同じ実行中エントリを見て、両方が停止を書き込む
@@ -103,24 +113,4 @@ function resolveNote(existing: string | undefined, given: string | undefined): {
   const note = given ?? existing;
 
   return note === undefined ? {} : { note };
-}
-
-/**
- * `--auto` のときだけ設定を読む。読めなかった値の警告はそのまま利用者に見せる。
- *
- * **`loadConfig` を省略できるようにしている**のは、設定を使わない経路（テストの多くと、
- * `--auto` を付けない実行）で設定ファイルの状態に引きずられないため。省略された場合は
- * 既定値を使う（`cli.ts` は必ず渡す）。
- */
-async function warnedConfig(loadConfig: LoadConfig | undefined, io: CliIo) {
-  if (loadConfig === undefined) {
-    return DEFAULT_CONFIG;
-  }
-
-  const { config, warnings } = await loadConfig();
-  for (const warning of warnings) {
-    io.err(warning);
-  }
-
-  return config;
 }

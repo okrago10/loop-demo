@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { daysOfWeek, weekPeriodOf } from "../../src/domain/week.js";
+import { RUNTIME_TZ } from "../support/config.js";
 
 /**
  * ローカルの壁時計で日時を組み立てる。
@@ -21,35 +22,35 @@ const THURSDAY = local(2026, 8, 13, 15, 30);
 
 describe("weekPeriodOf の週の範囲（既定は月曜始まり）", () => {
   it("木曜を渡すと、その週の月曜 00:00 から翌月曜 00:00 まで", () => {
-    const week = weekPeriodOf(THURSDAY);
+    const week = weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ });
 
     expect(week.start).toEqual(local(2026, 8, 10));
     expect(week.end).toEqual(local(2026, 8, 17));
   });
 
   it("週の初日を渡してもその週になる（境界）", () => {
-    const week = weekPeriodOf(local(2026, 8, 10, 0, 0));
+    const week = weekPeriodOf(local(2026, 8, 10, 0, 0), { timeZone: RUNTIME_TZ });
 
     expect(week.start).toEqual(local(2026, 8, 10));
     expect(week.end).toEqual(local(2026, 8, 17));
   });
 
   it("週の最終日の終わり近くを渡してもその週になる（境界）", () => {
-    const week = weekPeriodOf(local(2026, 8, 16, 23, 59));
+    const week = weekPeriodOf(local(2026, 8, 16, 23, 59), { timeZone: RUNTIME_TZ });
 
     expect(week.start).toEqual(local(2026, 8, 10));
     expect(week.end).toEqual(local(2026, 8, 17));
   });
 
   it("次の週の初日を渡すと次の週になる（境界: 半開区間）", () => {
-    const week = weekPeriodOf(local(2026, 8, 17, 0, 0));
+    const week = weekPeriodOf(local(2026, 8, 17, 0, 0), { timeZone: RUNTIME_TZ });
 
     expect(week.start).toEqual(local(2026, 8, 17));
     expect(week.end).toEqual(local(2026, 8, 24));
   });
 
   it("時刻は 00:00 に揃える", () => {
-    const week = weekPeriodOf(THURSDAY);
+    const week = weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ });
 
     expect(week.start.getHours()).toBe(0);
     expect(week.start.getMinutes()).toBe(0);
@@ -58,7 +59,7 @@ describe("weekPeriodOf の週の範囲（既定は月曜始まり）", () => {
   });
 
   it("ちょうど7日になる", () => {
-    const week = weekPeriodOf(THURSDAY);
+    const week = weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ });
 
     expect(week.end.getTime() - week.start.getTime()).toBe(7 * 24 * 60 * 60 * 1000);
   });
@@ -66,27 +67,27 @@ describe("weekPeriodOf の週の範囲（既定は月曜始まり）", () => {
 
 describe("weekPeriodOf の週の開始曜日", () => {
   it("日曜始まりにすると 8/9〜8/16 になる", () => {
-    const week = weekPeriodOf(THURSDAY, { weekStartsOn: 0 });
+    const week = weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ, weekStartsOn: 0 });
 
     expect(week.start).toEqual(local(2026, 8, 9));
     expect(week.end).toEqual(local(2026, 8, 16));
   });
 
   it("日曜始まりで日曜を渡すとその日が初日（境界）", () => {
-    const week = weekPeriodOf(local(2026, 8, 9, 12, 0), { weekStartsOn: 0 });
+    const week = weekPeriodOf(local(2026, 8, 9, 12, 0), { timeZone: RUNTIME_TZ, weekStartsOn: 0 });
 
     expect(week.start).toEqual(local(2026, 8, 9));
   });
 
   it("日曜始まりで土曜を渡すと前の日曜が初日（境界）", () => {
-    const week = weekPeriodOf(local(2026, 8, 15, 12, 0), { weekStartsOn: 0 });
+    const week = weekPeriodOf(local(2026, 8, 15, 12, 0), { timeZone: RUNTIME_TZ, weekStartsOn: 0 });
 
     expect(week.start).toEqual(local(2026, 8, 9));
     expect(week.end).toEqual(local(2026, 8, 16));
   });
 
   it("月曜始まりで日曜を渡すと前の月曜が初日（境界: 週の最終日）", () => {
-    const week = weekPeriodOf(local(2026, 8, 16, 12, 0), { weekStartsOn: 1 });
+    const week = weekPeriodOf(local(2026, 8, 16, 12, 0), { timeZone: RUNTIME_TZ, weekStartsOn: 1 });
 
     expect(week.start).toEqual(local(2026, 8, 10));
   });
@@ -100,7 +101,7 @@ describe("weekPeriodOf の週の開始曜日", () => {
     ["金曜", 5, local(2026, 8, 7)],
     ["土曜", 6, local(2026, 8, 8)],
   ])("開始曜日が %s なら初日は期待どおり", (_label, weekStartsOn, expected) => {
-    expect(weekPeriodOf(THURSDAY, { weekStartsOn }).start).toEqual(expected);
+    expect(weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ, weekStartsOn }).start).toEqual(expected);
   });
 
   it.each([
@@ -109,52 +110,54 @@ describe("weekPeriodOf の週の開始曜日", () => {
     ["小数", 1.5],
     ["NaN", Number.NaN],
   ])("開始曜日が不正（%s）なら Error を投げる", (_label, weekStartsOn) => {
-    expect(() => weekPeriodOf(THURSDAY, { weekStartsOn })).toThrow();
+    expect(() => weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ, weekStartsOn })).toThrow();
   });
 });
 
 describe("weekPeriodOf の offsetWeeks", () => {
   it("-1 で先週になる", () => {
-    const week = weekPeriodOf(THURSDAY, { offsetWeeks: -1 });
+    const week = weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ, offsetWeeks: -1 });
 
     expect(week.start).toEqual(local(2026, 8, 3));
     expect(week.end).toEqual(local(2026, 8, 10));
   });
 
   it("-2 で2週前になる", () => {
-    const week = weekPeriodOf(THURSDAY, { offsetWeeks: -2 });
+    const week = weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ, offsetWeeks: -2 });
 
     expect(week.start).toEqual(local(2026, 7, 27));
     expect(week.end).toEqual(local(2026, 8, 3));
   });
 
   it("0 は今週（省略時と同じ）", () => {
-    expect(weekPeriodOf(THURSDAY, { offsetWeeks: 0 })).toEqual(weekPeriodOf(THURSDAY));
+    expect(weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ, offsetWeeks: 0 })).toEqual(
+      weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ }),
+    );
   });
 
   it("+1 で翌週になる", () => {
-    const week = weekPeriodOf(THURSDAY, { offsetWeeks: 1 });
+    const week = weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ, offsetWeeks: 1 });
 
     expect(week.start).toEqual(local(2026, 8, 17));
   });
 
   it("月を跨いでも繰り下がる（境界）", () => {
     // 8/3 の週の1つ前は 7/27〜8/3
-    const week = weekPeriodOf(local(2026, 8, 3, 9, 0), { offsetWeeks: -1 });
+    const week = weekPeriodOf(local(2026, 8, 3, 9, 0), { timeZone: RUNTIME_TZ, offsetWeeks: -1 });
 
     expect(week.start).toEqual(local(2026, 7, 27));
   });
 
   it("年を跨いでも繰り下がる（境界）", () => {
     // 2027-01-07（木）の週は 1/4〜1/11。その2つ前は 2026-12-21〜12-28
-    const week = weekPeriodOf(local(2027, 1, 7, 9, 0), { offsetWeeks: -2 });
+    const week = weekPeriodOf(local(2027, 1, 7, 9, 0), { timeZone: RUNTIME_TZ, offsetWeeks: -2 });
 
     expect(week.start).toEqual(local(2026, 12, 21));
     expect(week.end).toEqual(local(2026, 12, 28));
   });
 
   it("開始曜日と併用できる", () => {
-    const week = weekPeriodOf(THURSDAY, { weekStartsOn: 0, offsetWeeks: -1 });
+    const week = weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ, weekStartsOn: 0, offsetWeeks: -1 });
 
     expect(week.start).toEqual(local(2026, 8, 2));
     expect(week.end).toEqual(local(2026, 8, 9));
@@ -164,30 +167,32 @@ describe("weekPeriodOf の offsetWeeks", () => {
     ["小数", 1.5],
     ["NaN", Number.NaN],
   ])("offsetWeeks が整数でない（%s）なら Error を投げる", (_label, offsetWeeks) => {
-    expect(() => weekPeriodOf(THURSDAY, { offsetWeeks })).toThrow();
+    expect(() => weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ, offsetWeeks })).toThrow();
   });
 });
 
 describe("daysOfWeek", () => {
   it("7件に分ける", () => {
-    expect(daysOfWeek(weekPeriodOf(THURSDAY))).toHaveLength(7);
+    expect(daysOfWeek(weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ }), RUNTIME_TZ)).toHaveLength(
+      7,
+    );
   });
 
   it("初日は週の開始と一致する", () => {
-    const days = daysOfWeek(weekPeriodOf(THURSDAY));
+    const days = daysOfWeek(weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ }), RUNTIME_TZ);
 
     expect(days[0]?.start).toEqual(local(2026, 8, 10));
   });
 
   it("最後の日の終わりは週の終わりと一致する", () => {
-    const week = weekPeriodOf(THURSDAY);
-    const days = daysOfWeek(week);
+    const week = weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ });
+    const days = daysOfWeek(week, RUNTIME_TZ);
 
     expect(days[6]?.end).toEqual(week.end);
   });
 
   it("隙間なく連続している（前の end と次の start が一致）", () => {
-    const days = daysOfWeek(weekPeriodOf(THURSDAY));
+    const days = daysOfWeek(weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ }), RUNTIME_TZ);
 
     for (let index = 1; index < days.length; index += 1) {
       expect(days[index]?.start).toEqual(days[index - 1]?.end);
@@ -195,14 +200,17 @@ describe("daysOfWeek", () => {
   });
 
   it("各日は 00:00 始まりで1日分", () => {
-    for (const day of daysOfWeek(weekPeriodOf(THURSDAY))) {
+    for (const day of daysOfWeek(weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ }), RUNTIME_TZ)) {
       expect(day.start.getHours()).toBe(0);
       expect(day.end.getTime() - day.start.getTime()).toBe(24 * 60 * 60 * 1000);
     }
   });
 
   it("日曜始まりでも初日は日曜", () => {
-    const days = daysOfWeek(weekPeriodOf(THURSDAY, { weekStartsOn: 0 }));
+    const days = daysOfWeek(
+      weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ, weekStartsOn: 0 }),
+      RUNTIME_TZ,
+    );
 
     expect(days[0]?.start).toEqual(local(2026, 8, 9));
     expect(days[0]?.start.getDay()).toBe(0);
@@ -216,12 +224,14 @@ describe("daysOfWeek", () => {
     ["8日", local(2026, 8, 10), local(2026, 8, 18)],
     ["6日", local(2026, 8, 10), local(2026, 8, 16)],
   ])("7日でない期間（%s）を渡すと Error を投げる", (_label, start, end) => {
-    expect(() => daysOfWeek({ start, end })).toThrow();
+    expect(() => daysOfWeek({ start, end }, RUNTIME_TZ)).toThrow();
   });
 
   it("weekPeriodOf が返した週はそのまま通る（開始曜日を変えても）", () => {
     for (const weekStartsOn of [0, 1, 2, 3, 4, 5, 6]) {
-      expect(() => daysOfWeek(weekPeriodOf(THURSDAY, { weekStartsOn }))).not.toThrow();
+      expect(() =>
+        daysOfWeek(weekPeriodOf(THURSDAY, { timeZone: RUNTIME_TZ, weekStartsOn }), RUNTIME_TZ),
+      ).not.toThrow();
     }
   });
 });

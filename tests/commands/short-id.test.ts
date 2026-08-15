@@ -13,6 +13,7 @@ import { createEntry } from "../../src/domain/entry.js";
 import type { LoadConfig } from "../../src/store/config-store.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
 import type { Store } from "../../src/store/store.js";
+import { RUNTIME_TZ, testLoadConfig } from "../support/config.js";
 
 let dir = "";
 let store: Store;
@@ -28,7 +29,8 @@ const io = {
   },
 };
 
-const defaultConfig: LoadConfig = () => Promise.resolve({ config: DEFAULT_CONFIG, warnings: [] });
+const defaultConfig: LoadConfig = () =>
+  Promise.resolve({ config: { ...DEFAULT_CONFIG, timezone: RUNTIME_TZ }, warnings: [] });
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "tock-short-id-"));
@@ -129,7 +131,10 @@ describe("一覧に出た表記でそのまま参照できる（DoD）", () => {
     const [shown] = listedIds(out);
     out = [];
 
-    await createEditCommand(deps(NOW)).run([shown ?? "", "--note", "設計レビュー"], io);
+    await createEditCommand(deps(NOW), testLoadConfig()).run(
+      [shown ?? "", "--note", "設計レビュー"],
+      io,
+    );
 
     expect(out[0]).toBe("修正しました: 設計レビュー");
     expect(out[1]).toBe(`id: ${shown ?? ""}`);
@@ -155,7 +160,7 @@ describe("一覧に出た表記でそのまま参照できる（DoD）", () => {
     out = [];
 
     for (const id of shown) {
-      await createEditCommand(deps(NOW)).run([id, "--note", `直した-${id}`], io);
+      await createEditCommand(deps(NOW), testLoadConfig()).run([id, "--note", `直した-${id}`], io);
     }
 
     expect(out.filter((line) => line.startsWith("修正しました"))).toHaveLength(3);
@@ -166,7 +171,7 @@ describe("既存の UUID もそのまま使える（DoD）", () => {
   it("36桁の id 全体で edit できる", async () => {
     await threeRecords();
 
-    await createEditCommand(deps(NOW)).run([ALICE, "--note", "全体で指定"], io);
+    await createEditCommand(deps(NOW), testLoadConfig()).run([ALICE, "--note", "全体で指定"], io);
 
     expect(out[0]).toBe("修正しました: 全体で指定");
   });
@@ -182,7 +187,10 @@ describe("既存の UUID もそのまま使える（DoD）", () => {
   it("大文字で書かれた id も受け付ける", async () => {
     await threeRecords();
 
-    await createEditCommand(deps(NOW)).run([ALICE.toUpperCase(), "--note", "大文字"], io);
+    await createEditCommand(deps(NOW), testLoadConfig()).run(
+      [ALICE.toUpperCase(), "--note", "大文字"],
+      io,
+    );
 
     expect(out[0]).toBe("修正しました: 大文字");
   });
@@ -190,7 +198,7 @@ describe("既存の UUID もそのまま使える（DoD）", () => {
   it("8桁より短い接頭辞でも、1件に決まれば引ける", async () => {
     await threeRecords();
 
-    await createEditCommand(deps(NOW)).run(["a", "--note", "1文字"], io);
+    await createEditCommand(deps(NOW), testLoadConfig()).run(["a", "--note", "1文字"], io);
 
     expect(out[0]).toBe("修正しました: 1文字");
   });
@@ -202,10 +210,10 @@ describe("曖昧な指定を取り違えない（DoD）", () => {
     await record(ALICE_TWIN, local(13, 13), local(13, 14), "実装");
 
     await expect(
-      createEditCommand(deps(NOW)).run(["aaaaaaaa", "--note", "どっち"], io),
+      createEditCommand(deps(NOW), testLoadConfig()).run(["aaaaaaaa", "--note", "どっち"], io),
     ).rejects.toThrow(UserError);
     await expect(
-      createEditCommand(deps(NOW)).run(["aaaaaaaa", "--note", "どっち"], io),
+      createEditCommand(deps(NOW), testLoadConfig()).run(["aaaaaaaa", "--note", "どっち"], io),
     ).rejects.toThrow(/候補/);
   });
 
@@ -224,7 +232,7 @@ describe("曖昧な指定を取り違えない（DoD）", () => {
       await record(LOWER, local(13, 3), local(13, 4), "小文字の記録");
 
       await expect(
-        createEditCommand(deps(NOW)).run([LOWER, "--note", "直したい"], io),
+        createEditCommand(deps(NOW), testLoadConfig()).run([LOWER, "--note", "直したい"], io),
       ).rejects.toThrow(UserError);
 
       const entries = await store.listAll();
@@ -236,7 +244,7 @@ describe("曖昧な指定を取り違えない（DoD）", () => {
       await record(LOWER, local(13, 3), local(13, 4), "小文字の記録");
 
       await expect(
-        createEditCommand(deps(NOW)).run([LOWER, "--note", "直したい"], io),
+        createEditCommand(deps(NOW), testLoadConfig()).run([LOWER, "--note", "直したい"], io),
       ).rejects.toThrow(new RegExp(`${UPPER} / ${LOWER}`));
     });
 
@@ -246,10 +254,10 @@ describe("曖昧な指定を取り違えない（DoD）", () => {
       await record(LOWER, local(13, 3), local(13, 4), "小文字の記録");
 
       await expect(
-        createEditCommand(deps(NOW)).run([LOWER, "--note", "直したい"], io),
+        createEditCommand(deps(NOW), testLoadConfig()).run([LOWER, "--note", "直したい"], io),
       ).rejects.toThrow(/大文字小文字だけが違う/);
       await expect(
-        createEditCommand(deps(NOW)).run([LOWER, "--note", "直したい"], io),
+        createEditCommand(deps(NOW), testLoadConfig()).run([LOWER, "--note", "直したい"], io),
       ).rejects.not.toThrow(/もっと長く/);
     });
   });
@@ -259,7 +267,7 @@ describe("曖昧な指定を取り違えない（DoD）", () => {
     await record(ALICE_TWIN, local(13, 13), local(13, 14), "実装");
 
     await expect(
-      createEditCommand(deps(NOW)).run(["aaaaaaaa", "--note", "どっち"], io),
+      createEditCommand(deps(NOW), testLoadConfig()).run(["aaaaaaaa", "--note", "どっち"], io),
     ).rejects.toThrow(UserError);
 
     out = [];
@@ -301,7 +309,10 @@ describe("曖昧な指定を取り違えない（DoD）", () => {
     await threeRecords();
     await record(ALICE_TWIN, local(13, 13), local(13, 14), "実装");
 
-    await createEditCommand(deps(NOW)).run(["aaaaaaaa-1", "--note", "決まった"], io);
+    await createEditCommand(deps(NOW), testLoadConfig()).run(
+      ["aaaaaaaa-1", "--note", "決まった"],
+      io,
+    );
 
     expect(out[0]).toBe("修正しました: 決まった");
   });
@@ -311,9 +322,9 @@ describe("該当しない id（DoD）", () => {
   it("edit は UserError にする（終了コード 1）", async () => {
     await threeRecords();
 
-    await expect(createEditCommand(deps(NOW)).run(["zzzzzzzz", "--note", "x"], io)).rejects.toThrow(
-      UserError,
-    );
+    await expect(
+      createEditCommand(deps(NOW), testLoadConfig()).run(["zzzzzzzz", "--note", "x"], io),
+    ).rejects.toThrow(UserError);
   });
 
   it("rm は UserError にする（終了コード 1）", async () => {
@@ -325,8 +336,8 @@ describe("該当しない id（DoD）", () => {
   });
 
   it("記録が1件も無いときも UserError にする（境界）", async () => {
-    await expect(createEditCommand(deps(NOW)).run(["aaaaaaaa", "--note", "x"], io)).rejects.toThrow(
-      UserError,
-    );
+    await expect(
+      createEditCommand(deps(NOW), testLoadConfig()).run(["aaaaaaaa", "--note", "x"], io),
+    ).rejects.toThrow(UserError);
   });
 });

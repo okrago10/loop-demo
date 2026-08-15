@@ -1,4 +1,5 @@
 import { formatDay } from "../domain/day.js";
+import { weekdayIn } from "../domain/timezone.js";
 import { roundMs, type RoundingRule } from "../domain/rounding.js";
 import type { WeekSummary } from "../domain/week-summary.js";
 import { formatDuration } from "./duration.js";
@@ -43,8 +44,12 @@ const GAP = "  ";
  * 各列は表示幅で揃えるが、**行末の空白は残さない**。端末に出す文字列に行末の空白が付くと、
  * ファイルへリダイレクトしたときやコピーしたときに余計な差分になる。
  */
-export function formatWeekLines(summary: WeekSummary, rounding?: RoundingRule): string[] {
-  const range = weekRange(summary);
+export function formatWeekLines(
+  summary: WeekSummary,
+  timeZone: string,
+  rounding?: RoundingRule,
+): string[] {
+  const range = weekRange(summary, timeZone);
 
   // 合計が 0 でタグの行も無い週は、0 だけの表を見せる意味がない
   if (summary.totalMs === 0 && summary.byTag.length === 0) {
@@ -65,7 +70,7 @@ export function formatWeekLines(summary: WeekSummary, rounding?: RoundingRule): 
   // （`dailyTotalMs` が「タグ別の列の和ではない」と定義されている理由と同じ）
   const round = (ms: number): number => (rounding === undefined ? ms : roundMs(ms, rounding));
 
-  const headers = [...summary.days.map(weekdayName), TOTAL_LABEL];
+  const headers = [...summary.days.map((day) => weekdayName(day, timeZone)), TOTAL_LABEL];
   const cells = rows.map((entry) => {
     const daily = entry.row.dailyMs.map((ms) => round(ms));
 
@@ -89,7 +94,7 @@ export function formatWeekLines(summary: WeekSummary, rounding?: RoundingRule): 
 }
 
 /** 週の範囲。終端は**含まれる最後の日**を出す（`end` は翌週の 00:00 なので見せない）。 */
-function weekRange(summary: WeekSummary): string {
+function weekRange(summary: WeekSummary, timeZone: string): string {
   const first = summary.days[0];
   const last = summary.days.at(-1);
 
@@ -97,11 +102,11 @@ function weekRange(summary: WeekSummary): string {
     return "";
   }
 
-  return `${formatDay(first)} 〜 ${formatDay(last)}`;
+  return `${formatDay(first, timeZone)} 〜 ${formatDay(last, timeZone)}`;
 }
 
-function weekdayName(day: Date): string {
-  return WEEKDAY_NAMES[day.getDay()] ?? "";
+function weekdayName(day: Date, timeZone: string): string {
+  return WEEKDAY_NAMES[weekdayIn(day, timeZone)] ?? "";
 }
 
 function line(

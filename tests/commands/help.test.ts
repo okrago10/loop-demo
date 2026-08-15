@@ -18,6 +18,7 @@ import { createWeekCommand } from "../../src/commands/week.js";
 import { createJsonConfigStore, loadEffectiveConfig } from "../../src/store/config-store.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
 import type { Store } from "../../src/store/store.js";
+import { testLoadConfig } from "../support/config.js";
 
 let dir = "";
 let store: Store;
@@ -63,15 +64,15 @@ beforeEach(async () => {
   const loadConfig = () => loadEffectiveConfig(configStore, {});
 
   commands = [
-    createStartCommand(deps),
-    createStopCommand(deps),
+    createStartCommand(deps, testLoadConfig()),
+    createStopCommand(deps, testLoadConfig()),
     createStatusCommand(deps),
-    createSwitchCommand(deps),
+    createSwitchCommand(deps, testLoadConfig()),
     createTodayCommand(deps, loadConfig),
     createSummaryCommand(deps, loadConfig),
     createLogCommand(deps, loadConfig),
     createWeekCommand(deps, loadConfig),
-    createEditCommand(deps),
+    createEditCommand(deps, testLoadConfig()),
     createRmCommand(deps, () => Promise.resolve(true)),
     createExportCommand(deps, loadConfig),
     createConfigCommand(configStore, {}),

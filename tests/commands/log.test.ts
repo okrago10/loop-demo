@@ -15,6 +15,7 @@ import {
   loadEffectiveConfig,
 } from "../../src/store/config-store.js";
 import type { Store } from "../../src/store/store.js";
+import { RUNTIME_TZ, testLoadConfig } from "../support/config.js";
 
 let dir = "";
 let store: Store;
@@ -37,7 +38,8 @@ const io = {
  * このファイルは集計の中身を見るので、設定の層は固定しておく。設定が効くことの検証は
  * `tests/commands/config.test.ts` と、このファイルの「週の開始曜日の優先順位」に置く。
  */
-const defaultConfig: LoadConfig = () => Promise.resolve({ config: DEFAULT_CONFIG, warnings: [] });
+const defaultConfig: LoadConfig = () =>
+  Promise.resolve({ config: { ...DEFAULT_CONFIG, timezone: RUNTIME_TZ }, warnings: [] });
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "tock-log-"));
@@ -73,14 +75,14 @@ function local(day: number, hours: number, minutes = 0): Date {
 
 /** 指定した時刻に開始して指定した時刻に終了した記録を作る。 */
 async function record(start: Date, end: Date, description: string): Promise<void> {
-  await createStartCommand(deps(start)).run([description], io);
-  await createStopCommand(deps(end)).run([], io);
+  await createStartCommand(deps(start), testLoadConfig()).run([description], io);
+  await createStopCommand(deps(end), testLoadConfig()).run([], io);
   out = [];
 }
 
 /** 停止していない記録を作る。 */
 async function startOnly(start: Date, description: string): Promise<void> {
-  await createStartCommand(deps(start)).run([description], io);
+  await createStartCommand(deps(start), testLoadConfig()).run([description], io);
   out = [];
 }
 

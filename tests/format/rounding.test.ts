@@ -5,6 +5,7 @@ import type { Summary } from "../../src/domain/summary.js";
 import type { WeekSummary } from "../../src/domain/week-summary.js";
 import { formatSummaryLines } from "../../src/format/summary.js";
 import { formatWeekLines } from "../../src/format/week.js";
+import { RUNTIME_TZ } from "../support/config.js";
 
 /**
  * 集計の表示に丸めを適用する（#63）。
@@ -142,6 +143,7 @@ describe("week に丸めが反映され、各行が横に閉じる（DoD）", ()
   it("セルが丸められる", () => {
     const lines = formatWeekLines(
       week([["work", [8, 0, 0, 0, 0, 0, 0]]], [8, 0, 0, 0, 0, 0, 0]),
+      RUNTIME_TZ,
       CEIL_15,
     );
 
@@ -152,6 +154,7 @@ describe("week に丸めが反映され、各行が横に閉じる（DoD）", ()
     // 8分が3日 → 丸めると 15m が3つ。行合計は 45m でなければ横に閉じない
     const lines = formatWeekLines(
       week([["work", [8, 8, 8, 0, 0, 0, 0]]], [8, 8, 8, 0, 0, 0, 0]),
+      RUNTIME_TZ,
       CEIL_15,
     );
 
@@ -163,6 +166,7 @@ describe("week に丸めが反映され、各行が横に閉じる（DoD）", ()
   it("`合計` 行も横に閉じる（総合計＝丸めた日別合計の和）", () => {
     const lines = formatWeekLines(
       week([["work", [8, 8, 8, 0, 0, 0, 0]]], [8, 8, 8, 0, 0, 0, 0]),
+      RUNTIME_TZ,
       CEIL_15,
     );
 
@@ -183,6 +187,7 @@ describe("week に丸めが反映され、各行が横に閉じる（DoD）", ()
         ],
         [90, 0, 0, 0, 0, 0, 0],
       ),
+      RUNTIME_TZ,
       CEIL_15,
     );
 
@@ -191,13 +196,16 @@ describe("week に丸めが反映され、各行が横に閉じる（DoD）", ()
   });
 
   it("設定が無ければ丸めない（既定は素の値）", () => {
-    const lines = formatWeekLines(week([["work", [8, 0, 0, 0, 0, 0, 0]]], [8, 0, 0, 0, 0, 0, 0]));
+    const lines = formatWeekLines(
+      week([["work", [8, 0, 0, 0, 0, 0, 0]]], [8, 0, 0, 0, 0, 0, 0]),
+      RUNTIME_TZ,
+    );
 
     expect(cells(lines[2] ?? "")[1]).toBe("8m");
   });
 
   it("記録が無い週は丸めても「記録がありません」のまま（境界）", () => {
-    const lines = formatWeekLines(week([], [0, 0, 0, 0, 0, 0, 0]), CEIL_15);
+    const lines = formatWeekLines(week([], [0, 0, 0, 0, 0, 0, 0]), RUNTIME_TZ, CEIL_15);
 
     expect(lines[1]).toBe("記録がありません");
   });
@@ -205,6 +213,7 @@ describe("week に丸めが反映され、各行が横に閉じる（DoD）", ()
   it("0 の曜日は 0s のまま（境界）", () => {
     const lines = formatWeekLines(
       week([["work", [8, 0, 0, 0, 0, 0, 0]]], [8, 0, 0, 0, 0, 0, 0]),
+      RUNTIME_TZ,
       CEIL_15,
     );
 

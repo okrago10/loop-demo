@@ -13,6 +13,7 @@ import type { Terminal } from "../../src/format/terminal.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
 import type { LoadConfig } from "../../src/store/config-store.js";
 import type { Store } from "../../src/store/store.js";
+import { RUNTIME_TZ, testLoadConfig } from "../support/config.js";
 
 /**
  * `summary --chart` と `week --heatmap`（#20）。
@@ -42,7 +43,8 @@ const io = {
   },
 };
 
-const defaultConfig: LoadConfig = () => Promise.resolve({ config: DEFAULT_CONFIG, warnings: [] });
+const defaultConfig: LoadConfig = () =>
+  Promise.resolve({ config: { ...DEFAULT_CONFIG, timezone: RUNTIME_TZ }, warnings: [] });
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "tock-chart-"));
@@ -81,8 +83,8 @@ function deps(now: Date) {
 
 /** 打刻して1件の記録を作る。 */
 async function record(start: Date, end: Date, description: string): Promise<void> {
-  await createStartCommand(deps(start)).run([description], io);
-  await createStopCommand(deps(end)).run([], io);
+  await createStartCommand(deps(start), testLoadConfig()).run([description], io);
+  await createStopCommand(deps(end), testLoadConfig()).run([], io);
   out = [];
 }
 
@@ -270,7 +272,7 @@ describe("week --heatmap", () => {
   });
 
   it("実行中の記録も、経過したぶんだけ図に出る（終端のないデータ）", async () => {
-    await createStartCommand(deps(local(12, 14))).run(["作業中 #work"], io);
+    await createStartCommand(deps(local(12, 14)), testLoadConfig()).run(["作業中 #work"], io);
     out = [];
 
     await createWeekCommand(deps(local(12, 15)), defaultConfig, TTY).run(["--heatmap"], io);

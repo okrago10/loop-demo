@@ -10,6 +10,7 @@ import { createStatusCommand } from "../../src/commands/status.js";
 import { createStopCommand } from "../../src/commands/stop.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
 import type { Store } from "../../src/store/store.js";
+import { testLoadConfig } from "../support/config.js";
 
 let dir = "";
 let store: Store;
@@ -51,7 +52,10 @@ function deps(now: Date) {
 
 /** 09:00 に開始した実行中エントリを作る。 */
 async function startAt9(description = "設計 #work"): Promise<void> {
-  await createStartCommand(deps(new Date("2026-08-12T09:00:00Z"))).run([description], io);
+  await createStartCommand(deps(new Date("2026-08-12T09:00:00Z")), testLoadConfig()).run(
+    [description],
+    io,
+  );
   out = [];
 }
 
@@ -154,7 +158,7 @@ describe("status（実行中なし）", () => {
 
   it("停止したあとは実行中なしになる", async () => {
     await startAt9();
-    await createStopCommand(deps(new Date("2026-08-12T10:00:00Z"))).run([], io);
+    await createStopCommand(deps(new Date("2026-08-12T10:00:00Z")), testLoadConfig()).run([], io);
     out = [];
 
     await createStatusCommand(deps(new Date("2026-08-12T11:00:00Z"))).run([], io);
@@ -205,7 +209,7 @@ describe("status --short", () => {
   });
 
   it("作業名もタグも無ければ経過時間だけ（境界）", async () => {
-    await createStartCommand(deps(new Date("2026-08-12T09:00:00Z"))).run([], io);
+    await createStartCommand(deps(new Date("2026-08-12T09:00:00Z")), testLoadConfig()).run([], io);
     out = [];
 
     await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z"))).run(["--short"], io);

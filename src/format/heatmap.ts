@@ -1,4 +1,5 @@
 import { formatDay } from "../domain/day.js";
+import { weekdayIn } from "../domain/timezone.js";
 import type { Heatmap } from "../domain/heatmap.js";
 import { pad } from "./columns.js";
 import type { Terminal } from "./terminal.js";
@@ -45,8 +46,12 @@ const EMPTY_MESSAGE = "記録がありません";
  * **記録が1件も無い週は、点だけの図を出さない。** 24×7 の `.` を見せても
  * 「記録が無い」以上のことは分からず、読む手間だけが増える。
  */
-export function formatHeatmapLines(heatmap: Heatmap, terminal: Terminal): string[] {
-  const range = heatmapRange(heatmap);
+export function formatHeatmapLines(
+  heatmap: Heatmap,
+  terminal: Terminal,
+  timeZone: string,
+): string[] {
+  const range = heatmapRange(heatmap, timeZone);
 
   if (heatmap.totalMs === 0) {
     return [range, EMPTY_MESSAGE];
@@ -58,7 +63,7 @@ export function formatHeatmapLines(heatmap: Heatmap, terminal: Terminal): string
     range,
     ruler(),
     ...heatmap.rows.map((row) =>
-      `${pad(WEEKDAY_NAMES[row.day.getDay()] ?? "", LABEL_WIDTH)}${row.hourlyMs
+      `${pad(WEEKDAY_NAMES[weekdayIn(row.day, timeZone)] ?? "", LABEL_WIDTH)}${row.hourlyMs
         .map((ms) => shades[shadeLevel(ms, heatmap.maxMs)] ?? "")
         .join("")}`.trimEnd(),
     ),
@@ -96,12 +101,12 @@ function ruler(): string {
 }
 
 /** 見出しに出す週の範囲。表（`week.ts`）と同じ書き方に揃える。 */
-function heatmapRange(heatmap: Heatmap): string {
+function heatmapRange(heatmap: Heatmap, timeZone: string): string {
   const first = heatmap.rows[0]?.day;
   const last = heatmap.rows.at(-1)?.day;
   if (first === undefined || last === undefined) {
     return "";
   }
 
-  return `${formatDay(first)} 〜 ${formatDay(last)}`;
+  return `${formatDay(first, timeZone)} 〜 ${formatDay(last, timeZone)}`;
 }
