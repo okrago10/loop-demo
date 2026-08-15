@@ -114,5 +114,11 @@ function resolveWeekStartsOn(value: string | undefined): number | undefined {
     );
   }
 
+  if (typeof parsed !== "number") {
+    // `weekStartsOn` は数値のキー。文字列が返るのは設定キーの型付けが壊れたときだけで、
+    // 黙って無視すると `--week-starts-on` が効かない理由が分からなくなる
+    throw new Error(`週の開始曜日の値が数値ではありません: ${JSON.stringify(parsed)}`);
+  }
+
   return parsed;
 }

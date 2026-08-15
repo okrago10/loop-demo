@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertConfigKey,
   CONFIG_KEYS,
+  type Config,
   DEFAULT_CONFIG,
   describeConfigKey,
   envNameOf,
@@ -250,8 +251,20 @@ describe("文字列の解釈が経路によって食い違わない", () => {
 
 describe("Config の形と CONFIG_KEYS が一致している", () => {
   // config-store の write は `{ ...生の値, ...config }` で知らないキーを残す。
-  // Config に CONFIG_KEYS 以外のフィールドがあると、それが設定ファイルに混ざる
-  it("Config のフィールドは CONFIG_KEYS と過不足なく同じ", () => {
-    expect(Object.keys(DEFAULT_CONFIG).toSorted()).toEqual([...CONFIG_KEYS].toSorted());
+  // Config に CONFIG_KEYS 以外のフィールドがあると、それが設定ファイルに混ざる。
+  //
+  // **キーはドット記法の葉になった（#63）ので、比べるのは「トップレベルの名前」。**
+  // `rounding.unitMinutes` と `rounding.mode` はファイル上では1つの `rounding` に入る
+  it("Config のフィールドはすべて CONFIG_KEYS のトップレベルに対応する", () => {
+    const topLevel = new Set(CONFIG_KEYS.map((key) => key.split(".")[0]));
+    const populated: Config = { weekStartsOn: 1, rounding: { unitMinutes: 15, mode: "ceil" } };
+
+    expect(Object.keys(populated).toSorted()).toEqual([...topLevel].toSorted());
+  });
+
+  it("既定の設定に余計なフィールドが無い（未設定は書き出さない）", () => {
+    // `rounding` は未設定＝丸めないなので、既定には現れない。
+    // 現れると「設定していないのに設定ファイルへ書かれる」ことになる
+    expect(Object.keys(DEFAULT_CONFIG)).toEqual(["weekStartsOn"]);
   });
 });

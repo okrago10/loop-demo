@@ -65,7 +65,13 @@ describe("config get", () => {
   it("キーを省略するとすべての設定を key=value で出す", async () => {
     await command().run(["get"], io);
 
-    expect(out).toEqual([`weekStartsOn=${String(DEFAULT_CONFIG.weekStartsOn)}`]);
+    // 丸め（#63）は未設定＝丸めないなので、値は空で出る。
+    // 行そのものを消さないのは「設定できるキーがある」ことを見せるため
+    expect(out).toEqual([
+      `weekStartsOn=${String(DEFAULT_CONFIG.weekStartsOn)}`,
+      "rounding.unitMinutes=",
+      "rounding.mode=",
+    ]);
     expect(err).toEqual([]);
   });
 

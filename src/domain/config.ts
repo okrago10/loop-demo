@@ -1,3 +1,4 @@
+import type { RoundingMode, RoundingRule } from "./rounding.js";
 import { assertWeekStartsOn, DEFAULT_WEEK_STARTS_ON } from "./week.js";
 
 /**
@@ -16,14 +17,52 @@ import { assertWeekStartsOn, DEFAULT_WEEK_STARTS_ON } from "./week.js";
  * 打った操作であり、受け付けられなかったことをその場で伝えられる。
  */
 
-/** 設定できるキー。**`config get|set` が受け付けるのはこの一覧だけ。** */
-export const CONFIG_KEYS = ["weekStartsOn"] as const;
+/**
+ * 設定できるキー。**`config get|set` が受け付けるのはこの一覧だけ。**
+ *
+ * **入れ子の値はドット記法の葉で表す。** 設定ファイルの形は
+ * `{"rounding": {"unitMinutes": 15, "mode": "ceil"}}` だが、`config set` は
+ * `<キー> <値>` の形なので、`rounding.unitMinutes` のように葉を直接指せるようにする。
+ * 環境変数名も葉から決まる（`TOCK_ROUNDING_UNIT_MINUTES`）。
+ */
+export const CONFIG_KEYS = ["weekStartsOn", "rounding.unitMinutes", "rounding.mode"] as const;
 
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
+
+/** 設定に書ける値。キーによって型が違う。 */
+export type ConfigValue = number | string;
 
 export interface Config {
   /** 週の開始曜日（0=日曜 … 6=土曜）。 */
   readonly weekStartsOn: number;
+  /**
+   * 集計の表示に使う丸め。**未設定なら丸めない。**
+   *
+   * 単位と丸め方の**両方が揃って初めて有効**にする。片方だけでは「15分単位でどちらに
+   * 寄せるか」が決まらず、こちらで既定を補うと利用者が書いていない規則で報告の値が
+   * 変わってしまう。
+   */
+  readonly rounding?: Partial<RoundingRule>;
+}
+
+/** 丸めの規則として使える形になっていれば返す。片方だけの指定では丸めない。 */
+export function roundingRuleOf(config: Config): RoundingRule | undefined {
+  const unitMinutes = config.rounding?.unitMinutes;
+  const mode = config.rounding?.mode;
+
+  return unitMinutes === undefined || mode === undefined ? undefined : { unitMinutes, mode };
+}
+
+/** 丸め方として書ける値。 */
+const ROUNDING_MODES: readonly RoundingMode[] = ["ceil", "floor", "nearest"];
+
+function isRoundingMode(value: unknown): value is RoundingMode {
+  return typeof value === "string" && (ROUNDING_MODES as readonly string[]).includes(value);
+}
+
+/** 正の整数か。丸めの単位に使う。 */
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
 /**
@@ -60,6 +99,12 @@ export function describeConfigKey(key: ConfigKey): string {
     case "weekStartsOn": {
       return "0（日曜）〜6（土曜）の整数";
     }
+    case "rounding.unitMinutes": {
+      return "1以上の整数（分）";
+    }
+    case "rounding.mode": {
+      return `${ROUNDING_MODES.join(" / ")} のいずれか`;
+    }
     default: {
       // キーを増やして case を書き忘れると、ここで型検査が落ちる
       const unhandled: never = key;
@@ -69,10 +114,16 @@ export function describeConfigKey(key: ConfigKey): string {
 }
 
 /** JSON から読んだ値を検査する。書けない値なら `undefined`。 */
-function fromJson(key: ConfigKey, value: unknown): number | undefined {
+function fromJson(key: ConfigKey, value: unknown): ConfigValue | undefined {
   switch (key) {
     case "weekStartsOn": {
       return isWeekStartsOn(value) ? value : undefined;
+    }
+    case "rounding.unitMinutes": {
+      return isPositiveInteger(value) ? value : undefined;
+    }
+    case "rounding.mode": {
+      return isRoundingMode(value) ? value : undefined;
     }
     default: {
       const unhandled: never = key;
@@ -90,10 +141,18 @@ function fromJson(key: ConfigKey, value: unknown): number | undefined {
  * オプションだけ1桁に限っていたため `00` が環境変数からは通ってオプションからは
  * 弾かれていた（レビューで指摘）。
  */
-export function parseConfigText(key: ConfigKey, text: string): number | undefined {
+export function parseConfigText(key: ConfigKey, text: string): ConfigValue | undefined {
   switch (key) {
     case "weekStartsOn": {
       return DECIMAL_INTEGER.test(text) && isWeekStartsOn(Number(text)) ? Number(text) : undefined;
+    }
+    case "rounding.unitMinutes": {
+      return DECIMAL_INTEGER.test(text) && isPositiveInteger(Number(text))
+        ? Number(text)
+        : undefined;
+    }
+    case "rounding.mode": {
+      return isRoundingMode(text) ? text : undefined;
     }
     default: {
       const unhandled: never = key;
@@ -103,10 +162,16 @@ export function parseConfigText(key: ConfigKey, text: string): number | undefine
 }
 
 /** 検査済みの値を設定に載せる。元の設定は書き換えない。 */
-function withValue(config: Config, key: ConfigKey, value: number): Config {
+function withValue(config: Config, key: ConfigKey, value: ConfigValue): Config {
   switch (key) {
     case "weekStartsOn": {
-      return { ...config, weekStartsOn: value };
+      return { ...config, weekStartsOn: value as number };
+    }
+    case "rounding.unitMinutes": {
+      return { ...config, rounding: { ...config.rounding, unitMinutes: value as number } };
+    }
+    case "rounding.mode": {
+      return { ...config, rounding: { ...config.rounding, mode: value as RoundingMode } };
     }
     default: {
       const unhandled: never = key;
@@ -135,6 +200,14 @@ export function formatConfigValue(config: Config, key: ConfigKey): string {
   switch (key) {
     case "weekStartsOn": {
       return String(config.weekStartsOn);
+    }
+    case "rounding.unitMinutes": {
+      // 未設定は空で表す。「丸めない」ことを 0 のような値で表すと、
+      // 「0 分単位で丸める」という書けない設定と見分けがつかない
+      return config.rounding?.unitMinutes === undefined ? "" : String(config.rounding.unitMinutes);
+    }
+    case "rounding.mode": {
+      return config.rounding?.mode ?? "";
     }
     default: {
       const unhandled: never = key;
@@ -166,7 +239,9 @@ export function assertConfigKey(value: string): ConfigKey {
 
 /** そのキーに対応する環境変数の名前。キーから決まるので一覧を二重に持たない。 */
 export function envNameOf(key: ConfigKey): string {
-  return `TOCK_${key.replaceAll(/[A-Z]/g, (upper) => `_${upper}`).toUpperCase()}`;
+  const flattened = key.replaceAll(".", "_");
+
+  return `TOCK_${flattened.replaceAll(/[A-Z]/g, (upper) => `_${upper}`).toUpperCase()}`;
 }
 
 /**
