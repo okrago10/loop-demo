@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 
 import type { Entry } from "../domain/entry.js";
 import { overlapsPeriod } from "../domain/period.js";
+import { DEFAULT_LOCK_OPTIONS, type LockOptions, withLock } from "./lock.js";
 import type { Store, StoreRange } from "./store.js";
 
 /**
@@ -279,35 +280,56 @@ async function appendRecord(filePath: string, record: StoreRecord): Promise<void
  * 保存先は引数で受け取る。既定の場所を組み立てるのは `resolveStorePath` の役目で、
  * テストは一時ディレクトリを指したパスを渡せる。
  *
- * 同時実行への保護は入れていない（#11 の担当範囲）。
+ * **書き込みは排他する（#11）。** 「読んでから書く」の間に他のプロセスが割り込むと、
+ * 実行中エントリが2つできて `stop` できなくなる。**読み出しはロックを取らない**——
+ * 追記は行単位で守られているので、読み手は壊れた状態を見ない。
  */
-export function createJsonlStore(filePath: string): Store {
+export function createJsonlStore(
+  filePath: string,
+  lock: LockOptions = DEFAULT_LOCK_OPTIONS,
+): Store {
+  const lockPath = `${filePath}.lock`;
+
+  /**
+   * 読んでから書くまでを、まとめて排他する（#11）。
+   *
+   * **読みと書きを別々にロックしても意味がない。** 壊れるのは「実行中は無い」と読んでから
+   * 書くまでの間で、そこに他のプロセスが割り込むと実行中エントリが2つできる。
+   */
+  const exclusively = async (write: (state: Map<string, Entry>) => Promise<void>): Promise<void> =>
+    withLock(lockPath, lock, async () => {
+      await write(await readState(filePath));
+    });
+
   return {
     async append(entry: Entry): Promise<void> {
-      const state = await readState(filePath);
-      if (state.has(entry.id)) {
-        throw new Error(`同じ id のエントリが既にあります: ${entry.id}`);
-      }
+      await exclusively(async (state) => {
+        if (state.has(entry.id)) {
+          throw new Error(`同じ id のエントリが既にあります: ${entry.id}`);
+        }
 
-      await appendRecord(filePath, { op: "append", entry });
+        await appendRecord(filePath, { op: "append", entry });
+      });
     },
 
     async update(entry: Entry): Promise<void> {
-      const state = await readState(filePath);
-      if (!state.has(entry.id)) {
-        throw new Error(`更新対象のエントリが見つかりません: ${entry.id}`);
-      }
+      await exclusively(async (state) => {
+        if (!state.has(entry.id)) {
+          throw new Error(`更新対象のエントリが見つかりません: ${entry.id}`);
+        }
 
-      await appendRecord(filePath, { op: "update", entry });
+        await appendRecord(filePath, { op: "update", entry });
+      });
     },
 
     async delete(id: string): Promise<void> {
-      const state = await readState(filePath);
-      if (!state.has(id)) {
-        throw new Error(`削除対象のエントリが見つかりません: ${id}`);
-      }
+      await exclusively(async (state) => {
+        if (!state.has(id)) {
+          throw new Error(`削除対象のエントリが見つかりません: ${id}`);
+        }
 
-      await appendRecord(filePath, { op: "delete", id });
+        await appendRecord(filePath, { op: "delete", id });
+      });
     },
 
     async listAll(): Promise<Entry[]> {
