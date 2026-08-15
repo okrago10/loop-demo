@@ -1,7 +1,8 @@
 import { type CliIo, type Command } from "../cli.js";
-import type { Entry } from "../domain/entry.js";
+import { type Entry, startedAt } from "../domain/entry.js";
 import { durationMs } from "../domain/period.js";
 import { formatDuration } from "../format/duration.js";
+import { formatMoment } from "../format/time.js";
 import { type CommandDeps, rejectUnknownArgs, takeFlag } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 import { assertStartNotInFuture } from "./entry-guard.js";
@@ -70,7 +71,7 @@ function longLines(running: Entry | undefined, now: Date): string[] {
   }
 
   lines.push(`経過: ${formatDuration(durationMs(running, now))}`);
-  lines.push(`開始: ${running.start}`);
+  lines.push(`開始: ${formatMoment(startedAt(running), now)}`);
 
   return lines;
 }

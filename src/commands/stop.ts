@@ -1,9 +1,10 @@
 import { type Command, type CliIo, UserError } from "../cli.js";
 import { DEFAULT_CONFIG, maxRunningMsOf } from "../domain/config.js";
-import { createEntry } from "../domain/entry.js";
+import { createEntry, endedAt } from "../domain/entry.js";
 import { autoStopAt } from "../domain/overrun.js";
 import { durationMs } from "../domain/period.js";
 import { formatDuration } from "../format/duration.js";
+import { formatMoment } from "../format/time.js";
 import { type CommandDeps, rejectUnknownArgs, resolveAt, takeFlag, takeOption } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 import type { LoadConfig } from "../store/config-store.js";
@@ -89,7 +90,7 @@ export function createStopCommand(deps: CommandDeps, loadConfig?: LoadConfig): C
       });
 
       io.out(`停止しました: ${formatDuration(durationMs(stopped))}`);
-      io.out(`終了時刻: ${stopped.end ?? ""}`);
+      io.out(`終了時刻: ${formatMoment(endedAt(stopped) ?? deps.now(), deps.now())}`);
     },
   };
 }
