@@ -34,6 +34,15 @@ const DEFINITION_FROM_27 = "MVP 到達までは `P1` = MVP に必須。到達後
 /** 使い切られた古い定義。これだけが書かれている状態に戻ってはいけない。 */
 const OUTDATED_DEFINITION = "- 優先度はタイトルの `[P1]`〜`[P3]`（P1 = MVP に必須）";
 
+/**
+ * どちらが正かを示す一文の核。
+ *
+ * **`#27` の出現だけを見ない。** 同じ節には到達状況の参照（`#27 の「MVP の定義」`）も
+ * あるので、`#27` を含むかだけでは、正がどちらかを書いた一文を消しても通る
+ * （レビューで指摘。実際に消して通ることを確かめた）。
+ */
+const PROVENANCE = "#27 の「運用ルール」が正";
+
 async function sectionOf(heading: string): Promise<string> {
   const found = sections(await readFile(CLAUDE_MD, "utf8")).find(
     (section) => section.heading === heading,
@@ -60,13 +69,6 @@ describe("MVP 到達の前後で P1 の意味が読み取れる（DoD）", () =>
     expect(text).toContain("次に必ずやるもの");
   });
 
-  it("2つの意味が同じ1文で並んでいる（どちらの時期の話か迷わない）", async () => {
-    // 別々の段落に散らすと、読んだ人が「いまはどちらか」を組み立てる必要が残る
-    const text = await sectionOf("Issue の運用");
-
-    expect(text).toContain(DEFINITION_FROM_27);
-  });
-
   it("使い切られた古い定義だけが残っている状態ではない（回帰）", async () => {
     const text = await sectionOf("Issue の運用");
 
@@ -79,17 +81,39 @@ describe("MVP 到達の前後で P1 の意味が読み取れる（DoD）", () =>
 
     expect(text).toContain("達成済み");
   });
+
+  it("どちらの意味かを時期で切ると書いてある（過去の P1 を読み替えない）", async () => {
+    // **「いま付いている P1」では対象が一意にならない**（レビューで指摘）。
+    // #1 や #18 は閉じたあともタイトルが `[P1]` のままで、当時の意味は「MVP に必須」。
+    // ループが読む文なので、指している集合が2通りに読めては困る
+    const text = await sectionOf("Issue の運用");
+
+    expect(text).toContain("到達後に付ける");
+    expect(text).toContain("到達前に付いた");
+    expect(text).toContain("遡って読み替えない");
+  });
 });
 
 describe("#27 の運用ルールと文言が一致している（DoD）", () => {
   it("#27 から写した一文がそのまま入っている", async () => {
+    // 別々の段落に散らすと、読んだ人が「いまはどちらか」を組み立てる必要が残る
     expect(await sectionOf("Issue の運用")).toContain(DEFINITION_FROM_27);
   });
 
-  it("定義の出どころ（#27）が示されている", async () => {
+  it("どちらが正か（#27 の「運用ルール」）が示されている", async () => {
     // 同じ定義が2箇所にある以上、どちらが正かを書いておかないと、
     // 食い違ったときにどちらへ寄せるか決められない
-    expect(await sectionOf("Issue の運用")).toContain("#27");
+    expect(await sectionOf("Issue の運用")).toContain(PROVENANCE);
+  });
+
+  it("同じ節にある別の #27 参照では満たされない（骨抜きになっていない）", () => {
+    // この節には到達状況の参照もあるので、`#27` の含有だけを見ると、
+    // どちらが正かの一文を消しても通ってしまう
+    const otherReference =
+      "到達の定義と、到達前の `P1` がどれ（10件）かは #27 の「MVP の定義」にある。";
+
+    expect(otherReference).toContain("#27");
+    expect(otherReference).not.toContain(PROVENANCE);
   });
 });
 
