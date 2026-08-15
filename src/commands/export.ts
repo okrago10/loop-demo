@@ -3,16 +3,16 @@ import type { Entry } from "../domain/entry.js";
 import { selectExportEntries } from "../domain/export.js";
 import { parsePeriodExpression } from "../domain/period-expression.js";
 import type { Period } from "../domain/period.js";
-import { formatCsvLines, formatJsonLines } from "../format/export.js";
+import { type CsvOptions, formatCsvLines, formatJsonLines } from "../format/export.js";
 import type { LoadConfig } from "../store/config-store.js";
-import { type CommandDeps, rejectUnknownArgs, takeOption } from "./args.js";
+import { type CommandDeps, rejectUnknownArgs, takeFlag, takeOption } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 
 /** 書き出せる形式。 */
 const FORMATTERS = {
   csv: formatCsvLines,
   json: formatJsonLines,
-} as const satisfies Record<string, (entries: readonly Entry[]) => string[]>;
+} as const satisfies Record<string, (entries: readonly Entry[], options?: CsvOptions) => string[]>;
 
 type Format = keyof typeof FORMATTERS;
 
@@ -41,8 +41,13 @@ const USAGE: CommandUsage = {
   options: [
     { name: "--format", argument: "csv|json", summary: "書き出す形式（必須）" },
     { name: "--period", argument: "期間", summary: "期間で絞る（省略すると全期間）" },
+    { name: "--sanitize", summary: "CSV で数式として読まれる値を無害化する" },
   ],
-  examples: ["tock export --format csv", "tock export --format json --period this-week"],
+  examples: [
+    "tock export --format csv",
+    "tock export --format json --period this-week",
+    "tock export --format csv --sanitize",
+  ],
 };
 
 export function createExportCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
@@ -52,7 +57,8 @@ export function createExportCommand(deps: CommandDeps, loadConfig: LoadConfig): 
     usage: USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const { value: formatValue, rest: afterFormat } = takeOption(argv, "--format");
+      const { present: sanitize, rest: afterSanitize } = takeFlag(argv, "--sanitize");
+      const { value: formatValue, rest: afterFormat } = takeOption(afterSanitize, "--format");
       const { value: periodValue, rest } = takeOption(afterFormat, "--period");
       rejectUnknownArgs(rest, { command: "export", usage: USAGE });
 
@@ -63,6 +69,15 @@ export function createExportCommand(deps: CommandDeps, loadConfig: LoadConfig): 
       // それ以外を先に片付けておけば、`--format` の打ち間違いで設定ファイルの警告が
       // 先に出ることはない
       const format = resolveFormat(formatValue);
+
+      // **JSON には無害化を当てない。** 再取り込みのための形式なので、値を変えると
+      // 読み戻したときに別の記録になる。黙って無視すると「無害化したつもり」の
+      // まま渡してしまうので、指定そのものを弾く
+      if (sanitize && format !== "csv") {
+        throw new UserError(
+          `--sanitize は --format csv でのみ使えます（${format} は値を変えずに書き出します）`,
+        );
+      }
 
       const { config, warnings } = await loadConfig();
       for (const warning of warnings) {
@@ -76,7 +91,7 @@ export function createExportCommand(deps: CommandDeps, loadConfig: LoadConfig): 
       const entries =
         period === undefined ? await deps.store.listAll() : await deps.store.listByRange(period);
 
-      for (const line of FORMATTERS[format](selectExportEntries(entries, period))) {
+      for (const line of FORMATTERS[format](selectExportEntries(entries, period), { sanitize })) {
         io.out(line);
       }
     },
