@@ -160,6 +160,7 @@ describe("overrideFromEnv（優先順位: 環境変数 > 設定ファイル）",
 
   it("環境変数名はキーから決まる", () => {
     expect(envNameOf("weekStartsOn")).toBe("TOCK_WEEK_STARTS_ON");
+    expect(envNameOf("maxRunningHours")).toBe("TOCK_MAX_RUNNING_HOURS");
   });
 });
 
@@ -258,7 +259,11 @@ describe("Config の形と CONFIG_KEYS が一致している", () => {
   // `rounding.unitMinutes` と `rounding.mode` はファイル上では1つの `rounding` に入る
   it("Config のフィールドはすべて CONFIG_KEYS のトップレベルに対応する", () => {
     const topLevel = new Set(CONFIG_KEYS.map((key) => key.split(".")[0]));
-    const populated: Config = { weekStartsOn: 1, rounding: { unitMinutes: 15, mode: "ceil" } };
+    const populated: Config = {
+      weekStartsOn: 1,
+      rounding: { unitMinutes: 15, mode: "ceil" },
+      maxRunningHours: 8,
+    };
 
     expect(Object.keys(populated).toSorted()).toEqual([...topLevel].toSorted());
   });

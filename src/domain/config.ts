@@ -1,3 +1,4 @@
+import { DEFAULT_MAX_RUNNING_HOURS, hoursToMs } from "./overrun.js";
 import type { RoundingMode, RoundingRule } from "./rounding.js";
 import { assertWeekStartsOn, DEFAULT_WEEK_STARTS_ON } from "./week.js";
 
@@ -25,7 +26,12 @@ import { assertWeekStartsOn, DEFAULT_WEEK_STARTS_ON } from "./week.js";
  * `<キー> <値>` の形なので、`rounding.unitMinutes` のように葉を直接指せるようにする。
  * 環境変数名も葉から決まる（`TOCK_ROUNDING_UNIT_MINUTES`）。
  */
-export const CONFIG_KEYS = ["weekStartsOn", "rounding.unitMinutes", "rounding.mode"] as const;
+export const CONFIG_KEYS = [
+  "weekStartsOn",
+  "rounding.unitMinutes",
+  "rounding.mode",
+  "maxRunningHours",
+] as const;
 
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
 
@@ -43,6 +49,24 @@ export interface Config {
    * 変わってしまう。
    */
   readonly rounding?: Partial<RoundingRule>;
+  /**
+   * 実行中と認める長さの上限（時間）。これを超えると警告が出る（#24）。
+   *
+   * **書かなければ既定の 8 時間。** 丸めと違って未設定でも意味が決まるので、
+   * 「上限なし」という状態は用意していない——止め忘れの検出が主目的で、
+   * 切れるようにすると機能そのものを無効にできてしまう。
+   */
+  readonly maxRunningHours?: number;
+}
+
+/**
+ * 実行中と認める長さの上限（ミリ秒）。判定に使う単位に直して返す。
+ *
+ * **未設定の既定をここで補う。** 書いていない設定の意味を各コマンドが決めると、
+ * コマンドごとに上限が食い違う（`roundingRuleOf` と同じ役割）。
+ */
+export function maxRunningMsOf(config: Config): number {
+  return hoursToMs(config.maxRunningHours ?? DEFAULT_MAX_RUNNING_HOURS);
 }
 
 /** 丸めの規則として使える形になっていれば返す。片方だけの指定では丸めない。 */
@@ -139,6 +163,9 @@ export function describeConfigKey(key: ConfigKey): string {
     case "rounding.mode": {
       return `${ROUNDING_MODES.join(" / ")} のいずれか`;
     }
+    case "maxRunningHours": {
+      return "1以上の整数（時間）";
+    }
     default: {
       // キーを増やして case を書き忘れると、ここで型検査が落ちる
       const unhandled: never = key;
@@ -158,6 +185,9 @@ function fromJson(key: ConfigKey, value: unknown): ConfigValue | undefined {
     }
     case "rounding.mode": {
       return isRoundingMode(value) ? value : undefined;
+    }
+    case "maxRunningHours": {
+      return isPositiveInteger(value) ? value : undefined;
     }
     default: {
       const unhandled: never = key;
@@ -188,6 +218,11 @@ export function parseConfigText(key: ConfigKey, text: string): ConfigValue | und
     case "rounding.mode": {
       return isRoundingMode(text) ? text : undefined;
     }
+    case "maxRunningHours": {
+      return DECIMAL_INTEGER.test(text) && isPositiveInteger(Number(text))
+        ? Number(text)
+        : undefined;
+    }
     default: {
       const unhandled: never = key;
       throw new Error(`設定キーの読み取りがありません: ${JSON.stringify(unhandled)}`);
@@ -206,6 +241,9 @@ function withValue(config: Config, key: ConfigKey, value: ConfigValue): Config {
     }
     case "rounding.mode": {
       return { ...config, rounding: { ...config.rounding, mode: asRoundingMode(key, value) } };
+    }
+    case "maxRunningHours": {
+      return { ...config, maxRunningHours: asNumber(key, value) };
     }
     default: {
       const unhandled: never = key;
@@ -265,6 +303,11 @@ export function formatConfigValue(config: Config, key: ConfigKey): string {
     }
     case "rounding.mode": {
       return config.rounding?.mode ?? "";
+    }
+    case "maxRunningHours": {
+      // **未設定でも空にしない。** 丸めと違い、書かなくても効いている値（既定 8）が
+      // あるので、空を見せると「上限が無い」と読める
+      return String(config.maxRunningHours ?? DEFAULT_MAX_RUNNING_HOURS);
     }
     default: {
       const unhandled: never = key;
@@ -454,7 +497,8 @@ function unreadableWarnings(
  */
 function describeDefault(key: ConfigKey): string {
   switch (key) {
-    case "weekStartsOn": {
+    case "weekStartsOn":
+    case "maxRunningHours": {
       return `既定値 ${formatConfigValue(DEFAULT_CONFIG, key)}`;
     }
     case "rounding.unitMinutes":
