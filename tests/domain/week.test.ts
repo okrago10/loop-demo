@@ -235,3 +235,28 @@ describe("daysOfWeek", () => {
     }
   });
 });
+
+describe("週の境界も渡したゾーンで変わる（#64）", () => {
+  // UTC では水曜 12日 22:00、東京では木曜 13日 07:00 の瞬間
+  const INSTANT = new Date("2026-08-12T22:00:00Z");
+
+  it("**同じ瞬間の「今週」の初日が、ゾーンによって別の瞬間になる**", () => {
+    const utc = weekPeriodOf(INSTANT, { timeZone: "UTC" });
+    const tokyo = weekPeriodOf(INSTANT, { timeZone: "Asia/Tokyo" });
+
+    // どちらも月曜 8/10 の 00:00 だが、瞬間としては9時間ずれる
+    expect(utc.start.toISOString()).toBe("2026-08-10T00:00:00.000Z");
+    expect(tokyo.start.toISOString()).toBe("2026-08-09T15:00:00.000Z");
+  });
+
+  it("**曜日の判定もそのゾーンの壁時計で行う**", () => {
+    // 東京の日曜 8/16 07:00（UTC ではまだ土曜 8/15 22:00）。週の開始を日曜にすると、
+    // 東京ではこの瞬間から新しい週が始まっている
+    const sundayInTokyo = new Date("2026-08-15T22:00:00Z");
+    const tokyo = weekPeriodOf(sundayInTokyo, { timeZone: "Asia/Tokyo", weekStartsOn: 0 });
+    const utc = weekPeriodOf(sundayInTokyo, { timeZone: "UTC", weekStartsOn: 0 });
+
+    expect(tokyo.start.toISOString()).toBe("2026-08-15T15:00:00.000Z"); // 東京の 8/16 00:00
+    expect(utc.start.toISOString()).toBe("2026-08-09T00:00:00.000Z"); // UTC の 8/9 00:00
+  });
+});
