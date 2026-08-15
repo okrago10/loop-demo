@@ -276,4 +276,20 @@ describe("CLAUDE.md の「依存の書き方」が現状と食い違っていな
   it("併記の例が残っている（回帰）", () => {
     expect(section(claudeMd, DEPENDENCY_HEADING) ?? "").toContain("E2-2（#6）");
   });
+
+  it("番号が無い依存に出会ったときの扱い（停止）が書いてある", () => {
+    // **`SKILL.md` 側にだけあれば良い、ではない。** `CLAUDE.md` が正なので、
+    // こちらから消えると「解決手順は無いが、代わりに何をするかも無い」状態になる
+    expect(section(claudeMd, DEPENDENCY_HEADING) ?? "").toContain("停止して報告する");
+  });
+
+  it("旧手順を現行の手順として書いていない", () => {
+    // 「エピックIDだけだと…突き合わせて番号に解決する必要があり」という動機の文が
+    // 現在形のまま残っていた（レビューで指摘）。先に読んだエージェントが、
+    // #70 で止めたはずの突き合わせを再開してしまう
+    const text = section(claudeMd, DEPENDENCY_HEADING) ?? "";
+
+    expect(text).not.toContain("番号に解決する");
+    expect(text).not.toContain("毎回同じ作業");
+  });
 });
