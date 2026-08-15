@@ -15,8 +15,14 @@ import { expandTags, normalizeTag } from "./tag.js";
 
 /** 絞り込みの条件。 */
 export interface LogFilter {
-  /** 重なりを見る期間。半開区間 `[start, end)`。 */
-  readonly period: Period;
+  /**
+   * 重なりを見る期間。半開区間 `[start, end)`。
+   *
+   * **省略すると期間で絞らない。** 以前は「全期間」を `Date` が表せる最大幅の期間で
+   * 表していたが、意図がマジックナンバーに埋まって読めなかった（#57）。
+   * 「絞らない」は範囲の一種ではなく範囲が無いことなので、値の有無で表す。
+   */
+  readonly period?: Period;
   /** 絞り込むタグ。階層の親を指定すると子も含まれる。 */
   readonly tag?: string;
   /** 返す最大件数。省略すると制限しない。 */
@@ -46,8 +52,9 @@ export function selectLogRows(entries: readonly Entry[], filter: LogFilter, asOf
   const limit = validateLimit(filter.limit);
   const tag = filter.tag === undefined ? undefined : normalizeTag(filter.tag);
 
+  const period = filter.period;
   const selected = entries
-    .filter((entry) => overlapsPeriod(entry, filter.period))
+    .filter((entry) => period === undefined || overlapsPeriod(entry, period))
     .filter((entry) => tag === undefined || hasTag(entry, tag))
     .map((entry) => toRow(entry, asOf));
 

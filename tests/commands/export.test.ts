@@ -137,6 +137,7 @@ describe("export の引数", () => {
       append: () => Promise.reject(new Error("読めません")),
       update: () => Promise.reject(new Error("読めません")),
       delete: () => Promise.reject(new Error("読めません")),
+      listAll: () => Promise.reject(new Error("読めません")),
       listByRange: () => Promise.reject(new Error("読めません")),
       findRunning: () => Promise.reject(new Error("読めません")),
     };

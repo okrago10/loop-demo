@@ -3,7 +3,7 @@ import type { Entry } from "../domain/entry.js";
 import { type CommandDeps, rejectUnknownArgs, takeFlag } from "./args.js";
 import { shortenId, shortIdLength } from "../domain/entry-id.js";
 import type { CommandUsage } from "../format/help.js";
-import { listAllEntries, resolveEntry } from "./lookup.js";
+import { resolveEntry } from "./lookup.js";
 
 /**
  * 削除してよいかを尋ねる。
@@ -47,7 +47,7 @@ export function createRmCommand(deps: CommandDeps, confirm: Confirm): Command {
 
       // **消せるものかを先に確かめる。** 存在しない id で確認を出すと、
       // 「はい」と答えたのに失敗する流れになる
-      const entries = await listAllEntries(deps.store);
+      const entries = await deps.store.listAll();
       const target = resolveEntry(entries, id);
 
       // 打った文字列ではなく、引き当てた記録の短縮 id を見せる。接頭辞で指定したときに
