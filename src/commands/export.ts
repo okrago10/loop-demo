@@ -141,12 +141,21 @@ function resolveFormat(given: ExportFormat | undefined, config: Config): ExportF
   if (format === undefined) {
     throw new UserError(
       `--format を指定してください（${FORMAT_NAMES.join(" / ")}）。` +
-        `毎回省くには tock config set defaultFormat ${FORMAT_NAMES[0] ?? ""} を実行します`,
+        `毎回省くには tock config set defaultFormat ${HINT_FORMAT} を実行します`,
     );
   }
 
   return format;
 }
+
+/**
+ * 設定を促す文言に出す形式。**一覧の先頭ではなく、書き下した1つを使う。**
+ *
+ * `EXPORT_FORMATS[0]` にすると、一覧の並びを変えただけで案内する形式が変わる。
+ * ここは「書ける値の列挙」ではなく**設定の例**なので、一覧とは連動させない
+ * （列挙のほうは `FORMAT_NAMES.join` が受け持つ）。レビューで指摘。
+ */
+const HINT_FORMAT: ExportFormat = "csv";
 
 /**
  * `--period` の解決。domain のエラーは利用者向けに翻訳する（domain は `UserError` を知らない）。

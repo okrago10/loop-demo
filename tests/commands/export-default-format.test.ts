@@ -243,6 +243,14 @@ describe("設定にも `--format` にも無い場合はエラー（DoD）", () =
     await expect(runExport([])).rejects.toThrow(/defaultFormat/);
   });
 
+  it("**そのまま打てる設定コマンドが文言に出る**", async () => {
+    // 案内は「書ける値の列挙」ではなく設定の例なので、一覧の並びに引きずられない。
+    // `EXPORT_FORMATS` の先頭を使っていたときは、並べ替えるだけで案内が変わった（レビューで指摘）
+    await record();
+
+    await expect(runExport([])).rejects.toThrow(/tock config set defaultFormat csv/);
+  });
+
   it("弾かれたときは何も書き出さない", async () => {
     await record();
 
