@@ -2,7 +2,7 @@
   "name": "tock",
   "version": "0.1.0",
   "description": "ローカル完結の作業時間トラッカー CLI",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "type": "module",
   "bin": {
     "tock": "dist/cli.js"
