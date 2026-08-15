@@ -1,10 +1,13 @@
 import { type CliIo, type Command, UserError } from "../cli.js";
 import { describeConfigKey, parseConfigText, roundingRuleOf } from "../domain/config.js";
+import { summarizeHeatmap } from "../domain/heatmap.js";
 import { summarizeWeek } from "../domain/week-summary.js";
 import { weekPeriodOf } from "../domain/week.js";
+import { formatHeatmapLines } from "../format/heatmap.js";
+import { PLAIN_TERMINAL, type Terminal } from "../format/terminal.js";
 import { formatWeekLines } from "../format/week.js";
 import type { LoadConfig } from "../store/config-store.js";
-import { type CommandDeps, rejectUnknownArgs, takeOption } from "./args.js";
+import { type CommandDeps, rejectUnknownArgs, takeFlag, takeOption } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 
 /** 十進の整数。符号は付けられるが、先頭の余分な `0`・小数点・指数・空白は許さない。 */
@@ -15,6 +18,9 @@ const DECIMAL_INTEGER = /^[+-]?(0|[1-9]\d*)$/;
  *
  * 読むだけで何も書かない。記録が無くてもエラーにしない（`status` / `summary` と同じ考え方で、
  * 「その週はまだ記録していない」は正常な答えである）。
+ *
+ * **`--heatmap` を付けると曜日 × 時間帯の図になる（#20）。** 同じ週の同じ記録を、
+ * タグではなく時間帯で見る。端末の性質は注入する（`summary` と同じ理由）。
  *
  * **週の開始曜日は `--week-starts-on` > 環境変数 > 設定ファイル > 既定（月曜）の順に決まる。**
  * 設定ファイルの読み取り（環境変数の重ねまで）は `loadConfig` が行い、このコマンドは
@@ -30,18 +36,29 @@ const USAGE: CommandUsage = {
       argument: "曜日",
       summary: "週の開始曜日（0 が日曜。設定より優先）",
     },
+    { name: "--heatmap", summary: "曜日 × 時間帯のヒートマップで表示する" },
   ],
-  examples: ["tock week", "tock week --offset 1", "tock week --week-starts-on 1"],
+  examples: [
+    "tock week",
+    "tock week --offset 1",
+    "tock week --week-starts-on 1",
+    "tock week --heatmap",
+  ],
 };
 
-export function createWeekCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
+export function createWeekCommand(
+  deps: CommandDeps,
+  loadConfig: LoadConfig,
+  terminal: Terminal = PLAIN_TERMINAL,
+): Command {
   return {
     name: "week",
     summary: "週のタグ別・曜日別の集計を表示する",
     usage: USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const { value: offsetValue, rest: afterOffset } = takeOption(argv, "--offset");
+      const { present: heatmap, rest: afterHeatmap } = takeFlag(argv, "--heatmap");
+      const { value: offsetValue, rest: afterOffset } = takeOption(afterHeatmap, "--offset");
       const { value: weekStartValue, rest } = takeOption(afterOffset, "--week-starts-on");
       rejectUnknownArgs(rest, { command: "week", usage: USAGE });
 
@@ -62,10 +79,13 @@ export function createWeekCommand(deps: CommandDeps, loadConfig: LoadConfig): Co
       // （日跨ぎ・実行中のものも含めて）返すため。曜日への振り分けは summarizeWeek が行う
       const entries = await deps.store.listByRange(week);
 
-      for (const line of formatWeekLines(
-        summarizeWeek(entries, week, now),
-        roundingRuleOf(config),
-      )) {
+      // **ヒートマップに丸めは当てない。** 濃淡は値の比であって表示する数字ではなく、
+      // 丸めると短い作業が消えて図の意味が変わる（丸めは #63 の「表示する数字」の話）
+      const lines = heatmap
+        ? formatHeatmapLines(summarizeHeatmap(entries, week, now), terminal)
+        : formatWeekLines(summarizeWeek(entries, week, now), roundingRuleOf(config));
+
+      for (const line of lines) {
         io.out(line);
       }
     },
