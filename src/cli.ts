@@ -344,6 +344,8 @@ if (invokedAsEntryPoint()) {
   // `EPIPE` 以外の書き込みエラーは内部エラーとして扱う。**`run` の戻り値で上書きしない**
   // ——出力が欠けたのに終了コード 0 を返すと、スクリプトから成功と見分けられない
   let writeFailed = false;
+  let writeReported = false;
+  let reportedCode: unknown;
   const reportWriteError = (error: unknown): void => {
     writeFailed = true;
 
@@ -351,6 +353,19 @@ if (invokedAsEntryPoint()) {
     // 下の代入が済んだあとに来ることがある（`> /dev/full` で実際にそうなった）。
     // 戻り値の代入だけに任せると、出力が欠けたのに終了コード 0 で終わる
     process.exitCode = EXIT_INTERNAL;
+
+    // **同じ原因を繰り返し報告しない。** 書き込みは行ごとなので、`> /dev/full` のように
+    // 以降も必ず失敗する相手だと、同じ `ENOSPC` が行数ぶん stderr に並ぶ（レビューで指摘）。
+    // 利用者に伝わるのは「書けなかった」ことと理由の1組で足りる。
+    //
+    // **`code` が変わったら改めて報告する。** 別の原因まで飲むと、最初の失敗のあとに
+    // 起きた本当の問題が見えなくなる
+    const code = isRecordObject(error) ? error["code"] : undefined;
+    if (writeReported && code === reportedCode) {
+      return;
+    }
+    writeReported = true;
+    reportedCode = code;
 
     try {
       process.stderr.write(`${messageOf(error)}\n`);

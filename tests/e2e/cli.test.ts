@@ -360,7 +360,17 @@ describe("npm run check と CI に含まれている（DoD）", () => {
  * stderr に混ぜて観測する。**stderr はパイプに混ぜない**——混ぜると `head` に切られて
  * エラー自体が見えなくなる（#49 の備考に書かれている落とし穴）。
  */
-describe.skipIf(!built)("出力を head で打ち切っても壊れない（DoD）", () => {
+/**
+ * **ここは本物の経路のスモークで、`EPIPE` を必ず起こす検証は
+ * `tests/cli-epipe.test.ts`（偽ストリーム）が持つ。**
+ *
+ * `--help` の出力はパイプバッファに収まるので、「書き切ったあとに読み手が閉じる」経路に
+ * なることがあり、その場合 `EPIPE` は起きない。つまりここが green でも
+ * 「起きなかったから通った」なのか「飲めたから通った」なのかは区別できない（レビューで指摘）。
+ * 振る舞いの固定は偽ストリーム側に置き、ここでは**利用者と同じ起動でスタックトレースが
+ * 出ないこと**だけを見る。
+ */
+describe.skipIf(!built)("出力を head で打ち切っても壊れない（DoD・スモーク）", () => {
   /** `node <CLI> <args> | head -<lines>` を走らせ、node 自身の終了コードを stderr で観測する。 */
   function piped(args: readonly string[], lines: number) {
     const inner = ["node", CLI, ...args].map((part) => `'${part}'`).join(" ");
@@ -445,6 +455,18 @@ describe.skipIf(!built || !hasDevFull)("EPIPE 以外の書き込みエラーは�
       const result = await toDevFull(["--help"]);
 
       expect(result.stderr).toContain("ENOSPC");
+    },
+    RUN_TIMEOUT_MS,
+  );
+
+  it(
+    "同じ原因は1回だけ報告する（行数ぶん並べない）",
+    async () => {
+      // `--help` は20行ほど書くので、1行ごとに報告すると同じ ENOSPC がその数だけ並ぶ
+      const result = await toDevFull(["--help"]);
+
+      const reported = result.stderr.split("\n").filter((line) => line.includes("ENOSPC"));
+      expect(reported).toHaveLength(1);
     },
     RUN_TIMEOUT_MS,
   );
