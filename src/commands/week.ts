@@ -1,5 +1,5 @@
 import { type CliIo, type Command, UserError } from "../cli.js";
-import { describeConfigKey, parseConfigText } from "../domain/config.js";
+import { describeConfigKey, parseConfigText, roundingRuleOf } from "../domain/config.js";
 import { summarizeWeek } from "../domain/week-summary.js";
 import { weekPeriodOf } from "../domain/week.js";
 import { formatWeekLines } from "../format/week.js";
@@ -62,7 +62,10 @@ export function createWeekCommand(deps: CommandDeps, loadConfig: LoadConfig): Co
       // （日跨ぎ・実行中のものも含めて）返すため。曜日への振り分けは summarizeWeek が行う
       const entries = await deps.store.listByRange(week);
 
-      for (const line of formatWeekLines(summarizeWeek(entries, week, now))) {
+      for (const line of formatWeekLines(
+        summarizeWeek(entries, week, now),
+        roundingRuleOf(config),
+      )) {
         io.out(line);
       }
     },
@@ -112,6 +115,12 @@ function resolveWeekStartsOn(value: string | undefined): number | undefined {
     throw new UserError(
       `--week-starts-on には${describeConfigKey("weekStartsOn")}を指定してください: ${JSON.stringify(value)}`,
     );
+  }
+
+  if (typeof parsed !== "number") {
+    // `weekStartsOn` は数値のキー。文字列が返るのは設定キーの型付けが壊れたときだけで、
+    // 黙って無視すると `--week-starts-on` が効かない理由が分からなくなる
+    throw new Error(`週の開始曜日の値が数値ではありません: ${JSON.stringify(parsed)}`);
   }
 
   return parsed;

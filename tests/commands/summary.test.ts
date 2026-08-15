@@ -7,8 +7,13 @@ import { UserError } from "../../src/cli.js";
 import { createStartCommand } from "../../src/commands/start.js";
 import { createSummaryCommand, createTodayCommand } from "../../src/commands/summary.js";
 import { createStopCommand } from "../../src/commands/stop.js";
+import { DEFAULT_CONFIG } from "../../src/domain/config.js";
+import type { LoadConfig } from "../../src/store/config-store.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
 import type { Store } from "../../src/store/store.js";
+
+/** 設定を書いていない状態。丸めの既定（丸めない）を含む。 */
+const defaultConfig: LoadConfig = () => Promise.resolve({ config: DEFAULT_CONFIG, warnings: [] });
 
 let dir = "";
 let store: Store;
@@ -69,7 +74,7 @@ describe("today", () => {
     await record(local(13, 9, 0), local(13, 10, 0), "設計 #work");
     await record(local(13, 11, 0), local(13, 11, 30), "会議 #会議");
 
-    await createTodayCommand(deps(local(13, 12, 0))).run([], io);
+    await createTodayCommand(deps(local(13, 12, 0)), defaultConfig).run([], io);
 
     // ラベル幅は work / 会議 / 合計 のいずれも表示幅 4。区切りは2スペース
     expect(out).toEqual(["2026-08-13", "work  1h", "会議  30m", "合計  1h 30m"]);
@@ -79,7 +84,7 @@ describe("today", () => {
     await record(local(13, 9, 0), local(13, 9, 10), "短い #short");
     await record(local(13, 10, 0), local(13, 12, 0), "長い #long");
 
-    await createTodayCommand(deps(local(13, 13, 0))).run([], io);
+    await createTodayCommand(deps(local(13, 13, 0)), defaultConfig).run([], io);
 
     expect(out[0]).toBe("2026-08-13");
     expect(out[1]).toContain("long");
@@ -90,7 +95,7 @@ describe("today", () => {
   it("階層タグは親でも合算される", async () => {
     await record(local(13, 9, 0), local(13, 10, 0), "設計 #proj/loop-demo");
 
-    await createTodayCommand(deps(local(13, 12, 0))).run([], io);
+    await createTodayCommand(deps(local(13, 12, 0)), defaultConfig).run([], io);
 
     const text = out.join("\n");
 
@@ -101,13 +106,15 @@ describe("today", () => {
   it("タグの無い記録は (タグなし) にまとまる", async () => {
     await record(local(13, 9, 0), local(13, 9, 30), "名前だけ");
 
-    await createTodayCommand(deps(local(13, 12, 0))).run([], io);
+    await createTodayCommand(deps(local(13, 12, 0)), defaultConfig).run([], io);
 
     expect(out.join("\n")).toContain("(タグなし)");
   });
 
   it("記録が1件も無い日でもエラーにならない", async () => {
-    await expect(createTodayCommand(deps(local(13, 12, 0))).run([], io)).resolves.toBeUndefined();
+    await expect(
+      createTodayCommand(deps(local(13, 12, 0)), defaultConfig).run([], io),
+    ).resolves.toBeUndefined();
 
     expect(out).toEqual(["2026-08-13", "記録がありません"]);
     expect(err).toEqual([]);
@@ -117,7 +124,7 @@ describe("today", () => {
     await createStartCommand(deps(local(13, 9, 0))).run(["設計 #work"], io);
     out = [];
 
-    await createTodayCommand(deps(local(13, 10, 30))).run([], io);
+    await createTodayCommand(deps(local(13, 10, 30)), defaultConfig).run([], io);
 
     expect(out.join("\n")).toContain("1h 30m");
   });
@@ -126,7 +133,7 @@ describe("today", () => {
     await createStartCommand(deps(local(12, 22, 0))).run(["徹夜 #work"], io);
     out = [];
 
-    await createTodayCommand(deps(local(13, 2, 0))).run([], io);
+    await createTodayCommand(deps(local(13, 2, 0)), defaultConfig).run([], io);
 
     expect(out.join("\n")).toContain("2h");
     expect(out.join("\n")).not.toContain("4h");
@@ -134,7 +141,7 @@ describe("today", () => {
 
   it("未知の引数は UserError で失敗する", async () => {
     await expect(
-      createTodayCommand(deps(local(13, 12, 0))).run(["--day", "2026-08-12"], io),
+      createTodayCommand(deps(local(13, 12, 0)), defaultConfig).run(["--day", "2026-08-12"], io),
     ).rejects.toThrow(UserError);
   });
 });
@@ -144,7 +151,10 @@ describe("summary --day", () => {
     await record(local(12, 9, 0), local(12, 10, 0), "前日 #work");
     await record(local(13, 9, 0), local(13, 11, 0), "当日 #work");
 
-    await createSummaryCommand(deps(local(13, 12, 0))).run(["--day", "2026-08-12"], io);
+    await createSummaryCommand(deps(local(13, 12, 0)), defaultConfig).run(
+      ["--day", "2026-08-12"],
+      io,
+    );
 
     expect(out).toEqual(["2026-08-12", "work  1h", "合計  1h"]);
   });
@@ -152,7 +162,7 @@ describe("summary --day", () => {
   it("--day を省略すると今日になる", async () => {
     await record(local(13, 9, 0), local(13, 10, 0), "設計 #work");
 
-    await createSummaryCommand(deps(local(13, 12, 0))).run([], io);
+    await createSummaryCommand(deps(local(13, 12, 0)), defaultConfig).run([], io);
 
     expect(out[0]).toBe("2026-08-13");
   });
@@ -160,10 +170,16 @@ describe("summary --day", () => {
   it("日跨ぎの記録は当日と翌日に按分される", async () => {
     await record(local(13, 23, 0), local(14, 1, 0), "夜通し #work");
 
-    await createSummaryCommand(deps(local(14, 12, 0))).run(["--day", "2026-08-13"], io);
+    await createSummaryCommand(deps(local(14, 12, 0)), defaultConfig).run(
+      ["--day", "2026-08-13"],
+      io,
+    );
     const first = [...out];
     out = [];
-    await createSummaryCommand(deps(local(14, 12, 0))).run(["--day", "2026-08-14"], io);
+    await createSummaryCommand(deps(local(14, 12, 0)), defaultConfig).run(
+      ["--day", "2026-08-14"],
+      io,
+    );
 
     expect(first.join("\n")).toContain("1h");
     expect(out.join("\n")).toContain("1h");
@@ -172,13 +188,19 @@ describe("summary --day", () => {
   it("記録の無い過去の日でもエラーにならない", async () => {
     await record(local(13, 9, 0), local(13, 10, 0), "設計 #work");
 
-    await createSummaryCommand(deps(local(13, 12, 0))).run(["--day", "2026-08-01"], io);
+    await createSummaryCommand(deps(local(13, 12, 0)), defaultConfig).run(
+      ["--day", "2026-08-01"],
+      io,
+    );
 
     expect(out).toEqual(["2026-08-01", "記録がありません"]);
   });
 
   it("未来の日は記録なしとして表示する（エラーにしない）", async () => {
-    await createSummaryCommand(deps(local(13, 12, 0))).run(["--day", "2027-01-01"], io);
+    await createSummaryCommand(deps(local(13, 12, 0)), defaultConfig).run(
+      ["--day", "2027-01-01"],
+      io,
+    );
 
     expect(out).toEqual(["2027-01-01", "記録がありません"]);
   });
@@ -190,19 +212,19 @@ describe("summary --day", () => {
     ["月が範囲外", "2026-13-01"],
   ])("--day が不正（%s）なら UserError で失敗する", async (_label, day) => {
     await expect(
-      createSummaryCommand(deps(local(13, 12, 0))).run(["--day", day], io),
+      createSummaryCommand(deps(local(13, 12, 0)), defaultConfig).run(["--day", day], io),
     ).rejects.toThrow(UserError);
   });
 
   it("--day の値が無い場合は UserError で失敗する", async () => {
-    await expect(createSummaryCommand(deps(local(13, 12, 0))).run(["--day"], io)).rejects.toThrow(
-      UserError,
-    );
+    await expect(
+      createSummaryCommand(deps(local(13, 12, 0)), defaultConfig).run(["--day"], io),
+    ).rejects.toThrow(UserError);
   });
 
   it("未知の引数は UserError で失敗する", async () => {
     await expect(
-      createSummaryCommand(deps(local(13, 12, 0))).run(["--unknown"], io),
+      createSummaryCommand(deps(local(13, 12, 0)), defaultConfig).run(["--unknown"], io),
     ).rejects.toThrow(UserError);
   });
 
@@ -210,7 +232,7 @@ describe("summary --day", () => {
     await createStartCommand(deps(local(13, 9, 0))).run(["設計 #work"], io);
     out = [];
 
-    await createSummaryCommand(deps(local(13, 10, 0))).run([], io);
+    await createSummaryCommand(deps(local(13, 10, 0)), defaultConfig).run([], io);
 
     expect(await store.findRunning()).toBeDefined();
   });
@@ -221,7 +243,7 @@ describe("summary の表示", () => {
     await record(local(13, 9, 0), local(13, 10, 0), "設計 #会議");
     await record(local(13, 10, 0), local(13, 10, 30), "実装 #ab");
 
-    await createTodayCommand(deps(local(13, 12, 0))).run([], io);
+    await createTodayCommand(deps(local(13, 12, 0)), defaultConfig).run([], io);
 
     // 「会議」は2文字だが表示幅は4桁。時間の開始位置が揃っていること
     const positions = out.slice(1).map((line) => line.indexOf(" ".repeat(2)) + 2);
@@ -232,7 +254,7 @@ describe("summary の表示", () => {
   it("すべての行に時間が入る", async () => {
     await record(local(13, 9, 0), local(13, 10, 0), "設計 #work");
 
-    await createTodayCommand(deps(local(13, 12, 0))).run([], io);
+    await createTodayCommand(deps(local(13, 12, 0)), defaultConfig).run([], io);
 
     for (const line of out.slice(1)) {
       expect(line).toMatch(/\d+[hms]/);
