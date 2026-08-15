@@ -75,6 +75,12 @@ work  1h
 `tock --help` でコマンドの一覧、`tock <command> --help` でそのコマンドの使い方が出る。
 以下は同じ内容を、実行例つきで並べたもの。
 
+> **時刻の見え方について。** 記録の時刻は ISO 8601 の **UTC**（末尾が `Z`）で出るが、
+> `--at` は**実行環境のローカル時刻**として解釈される。以下の実行例に貼ってある
+> `2026-08-12T09:00:00.000Z` のような値は、**マシンのタイムゾーンが UTC のときのもの**。
+> 例えば JST（UTC+9）で `--at 09:00` と打つと `2026-08-12T00:00:00.000Z` と出る。
+> 時刻を人が読める形にするのは #45、タイムゾーンを設定で選べるようにするのは #64 の担当。
+
 ### tock start
 
 作業を開始する。
@@ -86,7 +92,6 @@ work  1h
 ```console
 $ tock start "設計 #work/tock" --at 09:00
 開始しました: 設計 [#work/tock]
-開始時刻: 2026-08-12T09:00:00.000Z
 ```
 
 実行中の作業があるときに `start` すると失敗する。切り替えたいときは `tock switch` を使う。
@@ -113,10 +118,8 @@ $ echo $?
 ```console
 $ tock start "設計 #work/tock" --at 09:00
 開始しました: 設計 [#work/tock]
-開始時刻: 2026-08-12T09:00:00.000Z
 $ tock stop --at 10:30
 停止しました: 1h 30m
-終了時刻: 2026-08-12T10:30:00.000Z
 ```
 
 実行中の作業がなければ失敗する。打ち忘れに気づけるように、黙って成功はしない。
@@ -139,7 +142,6 @@ $ echo $?
 ```console
 $ tock start "実装 #work/tock" --at 13:00
 開始しました: 実装 [#work/tock]
-開始時刻: 2026-08-12T13:00:00.000Z
 $ tock status --short
 実装 #work/tock 5h 30m
 ```
@@ -162,11 +164,9 @@ $ tock status
 ```console
 $ tock start "設計 #work/tock" --at 09:00
 開始しました: 設計 [#work/tock]
-開始時刻: 2026-08-12T09:00:00.000Z
 $ tock switch "定例 #会議" --at 11:00
 停止しました: 2h
 開始しました: 定例 [#会議]
-開始時刻: 2026-08-12T11:00:00.000Z
 ```
 
 前の作業の終了時刻と次の作業の開始時刻は同じになるので、間に隙間ができない。
@@ -178,16 +178,12 @@ $ tock switch "定例 #会議" --at 11:00
 ```console
 $ tock start "設計 #work/tock" --at 09:00
 開始しました: 設計 [#work/tock]
-開始時刻: 2026-08-12T09:00:00.000Z
 $ tock stop --at 10:30
 停止しました: 1h 30m
-終了時刻: 2026-08-12T10:30:00.000Z
 $ tock start "定例 #会議" --at 11:00
 開始しました: 定例 [#会議]
-開始時刻: 2026-08-12T11:00:00.000Z
 $ tock stop --at 11:45
 停止しました: 45m
-終了時刻: 2026-08-12T11:45:00.000Z
 $ tock today
 2026-08-12
 work       1h 30m
@@ -211,10 +207,8 @@ work/tock  1h 30m
 ```console
 $ tock start "設計 #work/tock" --at 09:00
 開始しました: 設計 [#work/tock]
-開始時刻: 2026-08-12T09:00:00.000Z
 $ tock stop --at 10:30
 停止しました: 1h 30m
-終了時刻: 2026-08-12T10:30:00.000Z
 $ tock summary
 2026-08-12
 work       1h 30m
@@ -243,16 +237,12 @@ $ tock summary --day 2026-08-01
 ```console
 $ tock start "設計 #work/tock" --at 09:00
 開始しました: 設計 [#work/tock]
-開始時刻: 2026-08-12T09:00:00.000Z
 $ tock stop --at 10:30
 停止しました: 1h 30m
-終了時刻: 2026-08-12T10:30:00.000Z
 $ tock start "定例 #会議" --at 11:00
 開始しました: 定例 [#会議]
-開始時刻: 2026-08-12T11:00:00.000Z
 $ tock stop --at 11:45
 停止しました: 45m
-終了時刻: 2026-08-12T11:45:00.000Z
 $ tock log
 6d74145b  2026-08-12  11:00-11:45  45m     定例 #会議
 c01fa0f5  2026-08-12  09:00-10:30  1h 30m  設計 #work/tock
@@ -278,10 +268,8 @@ id は記録ごとに決まるので、この README の例に出ている値を
 ```console
 $ tock start "設計 #work/tock" --at 09:00
 開始しました: 設計 [#work/tock]
-開始時刻: 2026-08-12T09:00:00.000Z
 $ tock stop --at 10:30
 停止しました: 1h 30m
-終了時刻: 2026-08-12T10:30:00.000Z
 $ tock week
 2026-08-10 〜 2026-08-16
            月  火  水      木  金  土  日  合計
@@ -308,10 +296,8 @@ work/tock  0s  0s  1h 30m  0s  0s  0s  0s  1h 30m
 ```console
 $ tock start "設計 #work/tock" --at 09:00
 開始しました: 設計 [#work/tock]
-開始時刻: 2026-08-12T09:00:00.000Z
 $ tock stop --at 10:30
 停止しました: 1h 30m
-終了時刻: 2026-08-12T10:30:00.000Z
 $ tock log
 a2e4af24  2026-08-12  09:00-10:30  1h 30m  設計 #work/tock
 $ tock edit <id> --note "設計レビュー" --end 11:00
@@ -335,13 +321,13 @@ a2e4af24  2026-08-12  09:00-11:00  2h  設計レビュー #work/tock
 ```console
 $ tock start "打ち間違い #work" --at 09:00
 開始しました: 打ち間違い [#work]
-開始時刻: 2026-08-12T09:00:00.000Z
 $ tock stop --at 09:01
 停止しました: 1m
-終了時刻: 2026-08-12T09:01:00.000Z
+$ tock log
+3f9c1d20  2026-08-12  09:00-09:01  1m  打ち間違い #work
 $ tock rm <id> --yes
 削除しました: 打ち間違い #work
-id: a2e4af24
+id: 3f9c1d20
 ```
 
 `--yes` を付けないと確認を尋ねる。パイプやスクリプトから実行した場合は答えを受け取れない
@@ -368,10 +354,8 @@ $ echo $?
 ```console
 $ tock start "設計 #work/tock" --at 09:00
 開始しました: 設計 [#work/tock]
-開始時刻: 2026-08-12T09:00:00.000Z
 $ tock stop --at 10:30
 停止しました: 1h 30m
-終了時刻: 2026-08-12T10:30:00.000Z
 $ tock export --format csv
 id,start,end,duration_min,tags,note
 c01fa0f5-cbe6-470a-8550-ccf8caa4438d,2026-08-12T09:00:00.000Z,2026-08-12T10:30:00.000Z,90,work/tock,設計
@@ -384,10 +368,8 @@ JSON は記録の配列として出る。
 ```console
 $ tock start "設計 #work/tock" --at 09:00
 開始しました: 設計 [#work/tock]
-開始時刻: 2026-08-12T09:00:00.000Z
 $ tock stop --at 10:30
 停止しました: 1h 30m
-終了時刻: 2026-08-12T10:30:00.000Z
 $ tock export --format json --period today
 [
   {
@@ -411,11 +393,13 @@ $ tock config get
 weekStartsOn=1
 $ tock config set weekStartsOn 0
 設定しました: weekStartsOn=0
+~/.tock/config.json
 $ tock config get weekStartsOn
 0
 ```
 
-`config set` は書き込んだ設定ファイルのパスも表示する。設定できる項目は「設定」を参照。
+2行目に出るのが**書き込んだ設定ファイルのパス**（`TOCK_DIR` を指定していればそちら）。
+設定できる項目は「設定」を参照。
 
 ## タグ
 
@@ -424,7 +408,6 @@ $ tock config get weekStartsOn
 ```console
 $ tock start "定例 #会議 #proj/tock" --at 11:00
 開始しました: 定例 [#会議 #proj/tock]
-開始時刻: 2026-08-12T11:00:00.000Z
 ```
 
 - タグは複数書ける
@@ -450,10 +433,8 @@ $ tock start "定例 #会議 #proj/tock" --at 11:00
 ```console
 $ tock start "設計 #work/tock" --at 09:00
 開始しました: 設計 [#work/tock]
-開始時刻: 2026-08-12T09:00:00.000Z
 $ tock stop --at 10:30
 停止しました: 1h 30m
-終了時刻: 2026-08-12T10:30:00.000Z
 $ tock log --period -7d
 c01fa0f5  2026-08-12  09:00-10:30  1h 30m  設計 #work/tock
 ```
@@ -496,7 +477,6 @@ c01fa0f5  2026-08-12  09:00-10:30  1h 30m  設計 #work/tock
 ```console
 $ TOCK_DIR=/tmp/tock-trial tock start "試し #work"
 開始しました: 試し [#work]
-開始時刻: 2026-08-12T17:34:23.655Z
 ```
 
 記録は1行1操作の JSONL で、追記だけを行う。既にある行は書き換えない。

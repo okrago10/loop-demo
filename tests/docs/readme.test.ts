@@ -191,7 +191,39 @@ interface StepResult {
  * 「変わらない行のうちの一部しか見ない」側に倒しており、見た行は必ず本物である。
  */
 function fixedLines(output: readonly string[]): string[] {
-  return output.map((line) => line.trim()).filter((line) => line !== "" && !/\d/.test(line));
+  return output
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && !/\d/.test(line) && !isPath(line));
+}
+
+/**
+ * ファイルの場所を指す行か。
+ *
+ * `config set` は書き込んだ設定ファイルのパスを出すが、それは実行環境と `TOCK_DIR` で
+ * 変わる（テストでは一時ディレクトリ）。数字を含まないパスもあるので、数字の判定だけでは
+ * 落ちない。**変わる値をここで除いておかないと、README に本物の出力を貼れなくなる。**
+ */
+function isPath(line: string): boolean {
+  return /^[~/]\S*$/.test(line);
+}
+
+/**
+ * 先頭に付いた環境変数の代入（`TOCK_DIR=... tock start ...`）を落とす。
+ *
+ * **代入そのものは反映しない。** 保存先はこのハーネスが一時ディレクトリに固定しており、
+ * README に書かれた `/tmp/tock-trial` へ本当に書くと隔離が壊れる。ここで確かめたいのは
+ * 「その行のコマンドが動くか」で、`TOCK_DIR` が効くこと自体は
+ * `tests/e2e/cli.test.ts`（実ユーザーの `~/.tock` を汚さない）が押さえている。
+ *
+ * 落とさずに飛ばしていると、保存場所の節に載せた実例だけが未検証のまま残る（レビューで指摘）。
+ */
+function withoutEnvAssignments(tokens: readonly string[]): string[] {
+  const rest = [...tokens];
+  while (rest[0] !== undefined && /^[A-Z][A-Z0-9_]*=/.test(rest[0])) {
+    rest.shift();
+  }
+
+  return rest;
 }
 
 /**
@@ -200,7 +232,8 @@ function fixedLines(output: readonly string[]): string[] {
  * **ブロックごとに保存先を作り直す。** README のブロックは読む人がどこからでも
  * 貼れる形にしたいので、前のブロックの記録に依存させない。
  *
- * `tock` 以外のコマンド（`export TOCK_DIR=...` など）は実行しない。README に嘘の機能を
+ * `tock` 以外のコマンド（`git clone` や `npm ci`）は実行しない。**環境変数の代入が
+ * 前に付いた `tock` の行は実行する**（`withoutEnvAssignments`）。README に嘘の機能を
  * 書けなくする役目は、文章全体を走査する「実装されていない機能が書かれていない」の
  * 検査が担う。
  */
@@ -213,7 +246,7 @@ async function runBlock(block: CodeBlock, now: Date): Promise<StepResult> {
     const err: string[] = [];
 
     for (const step of shellSteps(block)) {
-      const tokens = tokenize(step.command);
+      const tokens = withoutEnvAssignments(tokenize(step.command));
       if (tokens[0] !== "tock") {
         continue;
       }
