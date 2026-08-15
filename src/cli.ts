@@ -26,7 +26,7 @@ import { createJsonlStore } from "./store/jsonl-store.js";
 import { LockTimeoutError } from "./store/lock.js";
 import { maxRunningMsOf } from "./domain/config.js";
 import { overrunWarning } from "./domain/overrun.js";
-import { resolveConfigPath, resolveStorePath } from "./store/store.js";
+import { resolveConfigPath, resolveStorePath, type Store } from "./store/store.js";
 import { readVersion } from "./version.js";
 
 /** 正常終了。 */
@@ -374,9 +374,13 @@ function buildRuntime(): Pick<CliDeps, "commands" | "noticesBeforeRun"> {
  *
  * **設定の警告はここでは出さない。** 同じ設定を読むコマンド（`summary` / `week` /
  * `log` / `export` / `stop --auto`）が自分で出すので、ここでも出すと二重になる。
+ *
+ * **公開しているのはテストのため。** ここを空にしても、判定（`domain/overrun.ts`）と
+ * 入口（`run`）のテストは両方通ってしまう——警告が実際に組み立てられているかを
+ * 見張るものが無くなる（mutation test で判明）。
  */
-async function overrunNotices(
-  store: ReturnType<typeof createJsonlStore>,
+export async function overrunNotices(
+  store: Store,
   loadConfig: LoadConfig,
   now: Date,
 ): Promise<readonly string[]> {

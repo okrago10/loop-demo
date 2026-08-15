@@ -3,7 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { type Command, EXIT_OK, EXIT_USAGE, run, UserError } from "../../src/cli.js";
+import {
+  type Command,
+  EXIT_OK,
+  EXIT_USAGE,
+  overrunNotices,
+  run,
+  UserError,
+} from "../../src/cli.js";
 import { createStartCommand } from "../../src/commands/start.js";
 import { createStatusCommand } from "../../src/commands/status.js";
 import { createStopCommand } from "../../src/commands/stop.js";
@@ -375,5 +382,76 @@ describe("どのコマンドの前にも警告が出る（DoD）", () => {
 
     expect(code).toBe(EXIT_OK);
     expect(err).toEqual([]);
+  });
+});
+
+describe("cli.ts が組み立てる警告（配線）", () => {
+  /**
+   * **ここが無いと、判定と入口の両方が通っていても警告が出ない状態を見逃す。**
+   * 実際 `overrunNotices` を「常に空を返す」に書き換えても、他の 85 件は全部通った
+   * （mutation test で判明）。組み立てそのものを直接見る。
+   */
+  it("上限を超えている実行中があれば、警告を1件返す", async () => {
+    await startAt(local(12, 9));
+
+    await expect(overrunNotices(store, defaultConfig, local(12, 22))).resolves.toHaveLength(1);
+  });
+
+  it("警告の中身が利用者向けになっている", async () => {
+    await startAt(local(12, 9));
+
+    const [notice] = await overrunNotices(store, defaultConfig, local(12, 22));
+
+    expect(notice).toContain("超えています");
+    expect(notice).toContain("tock stop --auto");
+  });
+
+  it("上限内なら空を返す", async () => {
+    await startAt(local(12, 9));
+
+    await expect(overrunNotices(store, defaultConfig, local(12, 12))).resolves.toEqual([]);
+  });
+
+  it("上限ちょうどでは空を返す（境界）", async () => {
+    await startAt(local(12, 9));
+
+    await expect(overrunNotices(store, defaultConfig, local(12, 17))).resolves.toEqual([]);
+  });
+
+  it("実行中が無ければ空を返す（境界: 0件）", async () => {
+    await expect(overrunNotices(store, defaultConfig, local(12, 22))).resolves.toEqual([]);
+  });
+
+  it("**実行中が無ければ設定を読まない**", async () => {
+    // すべての起動で設定ファイルを読まない方針を守る
+    let read = 0;
+    const counted: LoadConfig = () => {
+      read += 1;
+
+      return defaultConfig();
+    };
+
+    await overrunNotices(store, counted, local(12, 22));
+    expect(read).toBe(0);
+
+    await startAt(local(12, 9));
+    await overrunNotices(store, counted, local(12, 22));
+    expect(read).toBe(1);
+  });
+
+  it("設定の上限が効く", async () => {
+    await startAt(local(12, 9));
+
+    await expect(overrunNotices(store, twoHourLimit, local(12, 12))).resolves.toHaveLength(1);
+  });
+
+  it("**設定の警告はここでは返さない（二重に出さない）**", async () => {
+    // 同じ設定を読むコマンドが自分で出すので、ここでも出すと同じ行が2回出る
+    await startAt(local(12, 9));
+
+    const notices = await overrunNotices(store, noisyConfig, local(12, 22));
+
+    expect(notices).toHaveLength(1);
+    expect(notices.join("\n")).not.toContain("設定が読めません");
   });
 });
