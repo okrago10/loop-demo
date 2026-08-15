@@ -289,3 +289,58 @@ describe("rm と実行中エントリ（終端がない）", () => {
     expect(asked[0]).toContain("作業中");
   });
 });
+
+describe("確認を待つ間の排他（#11）", () => {
+  it("**返事を待っている間はロックを握らない**", async () => {
+    // 人の返事を待つ間ロックを握ると、その間に打刻した他の端末がすべてタイムアウトする。
+    // 確認の最中に別の書き込みが通ることで、握っていないことを見る
+    const id = await record(local(13, 9), local(13, 10), "設計 #work");
+    let wroteDuringConfirm = false;
+
+    const confirmMeanwhile: Confirm = async () => {
+      await createStartCommand(deps(local(13, 17))).run(["割り込み"], io);
+      wroteDuringConfirm = true;
+
+      return true;
+    };
+
+    await createRmCommand(deps(NOW), confirmMeanwhile).run([id], io);
+
+    expect(wroteDuringConfirm).toBe(true);
+    expect((await store.listByRange(allTime)).some((entry) => entry.id === id)).toBe(false);
+  });
+
+  it("待っている間に記録が消えていたら、消しにいかず伝える", async () => {
+    // ロックの外で待つ以上、返事が返る頃には対象が無くなっていることがある。
+    // 引き当て直さないと「削除対象が見つかりません」という内部向けの文面が出る
+    const id = await record(local(13, 9), local(13, 10), "設計 #work");
+
+    const confirmAfterDelete: Confirm = async () => {
+      await store.delete(id);
+
+      return true;
+    };
+
+    await expect(createRmCommand(deps(NOW), confirmAfterDelete).run([id], io)).rejects.toThrow(
+      UserError,
+    );
+  });
+
+  it("消えていた場合のエラーに、消そうとした id が出る", async () => {
+    const id = await record(local(13, 9), local(13, 10), "設計 #work");
+
+    const confirmAfterDelete: Confirm = async () => {
+      await store.delete(id);
+
+      return true;
+    };
+
+    const error = await Promise.resolve(
+      createRmCommand(deps(NOW), confirmAfterDelete).run([id], io),
+    )
+      .then(() => undefined)
+      .catch((caught: unknown) => caught);
+
+    expect((error as Error).message).toContain("無くなりました");
+  });
+});

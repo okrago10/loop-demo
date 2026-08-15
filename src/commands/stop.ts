@@ -33,29 +33,35 @@ export function createStopCommand(deps: CommandDeps): Command {
       const { at, rest: remaining } = resolveAt(rest, deps.now());
       rejectUnknownArgs(remaining, { command: "stop", usage: USAGE });
 
-      const running = await deps.store.findRunning();
-      if (running === undefined) {
-        throw new UserError("実行中の作業がありません。tock start で開始してください");
-      }
+      // **判断と書き込みを1つの操作にする（#11）。** 別々にすると、2つのプロセスが
+      // 同じ実行中エントリを見て、両方が停止を書き込む
+      const stopped = await deps.store.transaction(async () => {
+        const running = await deps.store.findRunning();
+        if (running === undefined) {
+          throw new UserError("実行中の作業がありません。tock start で開始してください");
+        }
 
-      // createEntry は end < start を弾く。その失敗は打ち間違いなので UserError に translate し、
-      // 保存はしない（実行中のまま残るので、正しい時刻で再実行できる）
-      let stopped;
-      try {
-        stopped = createEntry(
-          {
-            start: running.start,
-            end: at,
-            tags: running.tags,
-            ...resolveNote(running.note, note),
-          },
-          { newId: () => running.id },
-        );
-      } catch (error) {
-        throw new UserError(error instanceof Error ? error.message : String(error));
-      }
+        // createEntry は end < start を弾く。その失敗は打ち間違いなので UserError に翻訳し、
+        // 保存はしない（実行中のまま残るので、正しい時刻で再実行できる）
+        let candidate;
+        try {
+          candidate = createEntry(
+            {
+              start: running.start,
+              end: at,
+              tags: running.tags,
+              ...resolveNote(running.note, note),
+            },
+            { newId: () => running.id },
+          );
+        } catch (error) {
+          throw new UserError(error instanceof Error ? error.message : String(error));
+        }
 
-      await deps.store.update(stopped);
+        await deps.store.update(candidate);
+
+        return candidate;
+      });
 
       io.out(`停止しました: ${formatDuration(durationMs(stopped))}`);
       io.out(`終了時刻: ${stopped.end ?? ""}`);

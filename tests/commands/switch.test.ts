@@ -64,6 +64,7 @@ const allTime = {
 /** 追記だけが必ず失敗するストア。書き込みが途中で落ちた状況を作る。 */
 function storeWithFailingAppend(base: Store): Store {
   return {
+    transaction: <T>(action: () => Promise<T>) => action(),
     append: () => Promise.reject(new Error("書き込みに失敗しました")),
     update: (entry) => base.update(entry),
     delete: (id) => base.delete(id),
@@ -82,6 +83,7 @@ function storeWithFailingAppend(base: Store): Store {
  */
 function storeWithFailingAppendAndRollback(base: Store): Store {
   return {
+    transaction: <T>(action: () => Promise<T>) => action(),
     append: () => Promise.reject(new Error("追記が失敗しました")),
     update: (entry) =>
       entry.end === undefined
@@ -103,6 +105,7 @@ function storeWithFailingAppendAndRollback(base: Store): Store {
  */
 function storeWithFailingUpdate(base: Store): Store {
   return {
+    transaction: <T>(action: () => Promise<T>) => action(),
     append: (entry) => base.append(entry),
     update: () => Promise.reject(new Error("確定の書き込みに失敗しました")),
     delete: (id) => base.delete(id),

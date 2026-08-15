@@ -62,35 +62,44 @@ export function createEditCommand(deps: CommandDeps): Command {
         );
       }
 
-      const entries = await deps.store.listAll();
-      const target = resolveEntry(entries, id);
+      // **読み出しから書き込みまでを1つの操作にする（#11）。** 別々にすると、重なりの
+      // 検査に使った一覧が古くなり、他のプロセスが書いた記録と重なる編集を通してしまう
+      const { edited, shown } = await deps.store.transaction(async () => {
+        const entries = await deps.store.listAll();
+        const target = resolveEntry(entries, id);
 
-      const now = deps.now();
-      const changes: EntryChanges = {
-        ...(startValue === undefined
-          ? {}
-          : { start: resolveClockTimeOn(startValue, startedAt(target), now, "--start") }),
-        ...(endValue === undefined
-          ? {}
-          : { end: resolveClockTimeOn(endValue, endBaseDate(target, now), now, "--end") }),
-        ...(tagsValue === undefined ? {} : { tags: parseTagList(tagsValue) }),
-        ...(noteValue === undefined ? {} : { note: noteValue }),
-      };
+        const now = deps.now();
+        const changes: EntryChanges = {
+          ...(startValue === undefined
+            ? {}
+            : { start: resolveClockTimeOn(startValue, startedAt(target), now, "--start") }),
+          ...(endValue === undefined
+            ? {}
+            : { end: resolveClockTimeOn(endValue, endBaseDate(target, now), now, "--end") }),
+          ...(tagsValue === undefined ? {} : { tags: parseTagList(tagsValue) }),
+          ...(noteValue === undefined ? {} : { note: noteValue }),
+        };
 
-      const edited = translate(() => applyEdit(target, changes));
+        const candidate = translate(() => applyEdit(target, changes));
 
-      const conflict = findOverlapping(edited, entries);
-      if (conflict !== undefined) {
-        throw new UserError(
-          `編集後の時間が別の記録と重なります: ${describe(conflict)}（id: ${shortenId(conflict.id, shortIdLength(entries.map((entry) => entry.id)))}）`,
-        );
-      }
+        const conflict = findOverlapping(candidate, entries);
+        if (conflict !== undefined) {
+          throw new UserError(
+            `編集後の時間が別の記録と重なります: ${describe(conflict)}（id: ${shortenId(conflict.id, shortIdLength(entries.map((entry) => entry.id)))}）`,
+          );
+        }
 
-      await deps.store.update(edited);
+        await deps.store.update(candidate);
+
+        return {
+          edited: candidate,
+          shown: shortenId(candidate.id, shortIdLength(entries.map((entry) => entry.id))),
+        };
+      });
 
       io.out(`修正しました: ${describe(edited)}`);
       // 打った文字列ではなく、引き当てた記録の短縮 id を見せる（`log` の一覧と同じ表記）
-      io.out(`id: ${shortenId(edited.id, shortIdLength(entries.map((entry) => entry.id)))}`);
+      io.out(`id: ${shown}`);
     },
   };
 }

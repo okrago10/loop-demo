@@ -25,6 +25,24 @@ export type StoreRange = Period;
  * 指した実装を渡せる）。
  */
 export interface Store {
+  /**
+   * 読み出しから書き込みまでを、1つの操作としてまとめる（#11）。
+   *
+   * **書き込みだけを排他しても足りない。** 壊れるのは「実行中は無い」と読んでから
+   * 書くまでの間で、そこに他のプロセスが割り込むと実行中エントリが2つでき、
+   * `stop` できなくなる（実測で再現する）。判断に使った読み出しも、この中に入れる。
+   *
+   * ```ts
+   * await store.transaction(async () => {
+   *   if ((await store.findRunning()) !== undefined) throw new UserError("既に実行中です");
+   *   await store.append(entry);
+   * });
+   * ```
+   *
+   * **入れ子にしてよい。** 中で呼ぶ `append` などは、外側の排他をそのまま使う。
+   */
+  transaction<T>(action: () => Promise<T>): Promise<T>;
+
   /** 新しいエントリを追加する。同じ id が既にあれば失敗する。 */
   append(entry: Entry): Promise<void>;
 

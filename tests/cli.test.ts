@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { type Command, EXIT_INTERNAL, EXIT_OK, EXIT_USAGE, run, UserError } from "../src/cli.js";
+import { LockTimeoutError } from "../src/store/lock.js";
 
 /** stdout / stderr を別々に集める。混ざっていないことを検証できる。 */
 function collector(): {
@@ -339,6 +340,22 @@ describe("終了コード", () => {
 
     expect(code).toBe(EXIT_INTERNAL);
     expect(err.length).toBeGreaterThan(0);
+  });
+
+  it("ロック待ちのタイムアウトは 1 を返す（#11）", async () => {
+    // 「別の端末で tock が動いている」は利用者が直せる状態であって、tock の不具合ではない。
+    // 2 を返すとスクリプトからは想定外の例外と見分けが付かない
+    const { err, io } = collector();
+    const commands = [
+      command("start", "作業を開始する", () => {
+        throw new LockTimeoutError("他の tock が書き込み中のため、5000ms 待っても…");
+      }),
+    ];
+
+    const code = await run(["start"], deps(io, commands));
+
+    expect(code).toBe(EXIT_USAGE);
+    expect(err.join("\n")).toContain("他の tock が書き込み中");
   });
 
   it("終了コードの値が仕様どおりである", () => {

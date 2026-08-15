@@ -19,6 +19,7 @@ import { type CommandUsage, formatCommandHelp } from "./format/help.js";
 import { randomId } from "./id.js";
 import { createJsonConfigStore, loadEffectiveConfig } from "./store/config-store.js";
 import { createJsonlStore } from "./store/jsonl-store.js";
+import { LockTimeoutError } from "./store/lock.js";
 import { resolveConfigPath, resolveStorePath } from "./store/store.js";
 import { readVersion } from "./version.js";
 
@@ -256,7 +257,12 @@ export async function run(argv: readonly string[], deps: CliDeps): Promise<numbe
     return EXIT_OK;
   } catch (error) {
     deps.err(messageOf(error));
-    return error instanceof UserError ? EXIT_USAGE : EXIT_INTERNAL;
+
+    // ロック待ちのタイムアウト（#11）も利用者起因として扱う。tock の不具合ではなく、
+    // 別の端末で動いている・異常終了でロックが残っている、という利用者が直せる状態
+    return error instanceof UserError || error instanceof LockTimeoutError
+      ? EXIT_USAGE
+      : EXIT_INTERNAL;
   }
 }
 
