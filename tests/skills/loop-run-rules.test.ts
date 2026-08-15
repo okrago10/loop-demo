@@ -15,10 +15,13 @@ import { beforeAll, describe, expect, it } from "vitest";
  */
 
 const SKILL_PATH = ".claude/skills/loop-run/SKILL.md";
+const CLAUDE_MD_PATH = "CLAUDE.md";
 
 const BASE_HEADING = "### 3-1. base の決定";
 const PRIORITY_HEADING = "### 2-3. 優先順位";
 const STOP_HEADING = "## 停止するとき";
+const EXTRACT_HEADING = "### 2-1. 候補の抽出";
+const DEPENDENCY_HEADING = "### 依存の書き方";
 
 /** 見出しの深さ（先頭の `#` の数）。見出しでなければ 0。 */
 function headingLevel(line: string): number {
@@ -84,9 +87,11 @@ function paragraphs(text: string): string[] {
 }
 
 let skill = "";
+let claudeMd = "";
 
 beforeAll(async () => {
   skill = await readFile(SKILL_PATH, "utf8");
+  claudeMd = await readFile(CLAUDE_MD_PATH, "utf8");
 });
 
 describe("節の取り出し", () => {
@@ -196,5 +201,79 @@ describe("並列依存の扱いが SKILL.md に書かれている（DoD）", () 
 
     expect(priority).toBeDefined();
     expect(priority ?? "").toContain("並列");
+  });
+});
+
+/**
+ * 依存の表記をエピックIDと Issue 番号の併記に揃える（#70）。
+ *
+ * `SKILL.md`「2-1」には、エピックIDだけで書かれた依存を**タイトル接頭辞と突き合わせて
+ * 番号に解決する**手順があった。この突き合わせは接頭辞が1文字違うと**依存が無いものとして
+ * 静かに着手する**——止まらずに間違った base で進むので、失敗が見えない。
+ *
+ * 対象の Issue（#10 / #11 / #20 / #24）を併記の形に直したので、手順ごと外す。
+ * **Issue 本文は GitHub 上にあってテストから読めない**ため、ここで固定できるのは
+ * 「ルール側に解決手順が残っていないか」と「読み取りに必要な記述は残っているか」だけ。
+ * 実際に対象が0件になったことの確認は PR 本文に貼る。
+ */
+describe("エピックIDから番号を解決する手順が残っていない（DoD）", () => {
+  it("「2-1. 候補の抽出」の節がある", () => {
+    expect(section(skill, EXTRACT_HEADING)).toBeDefined();
+  });
+
+  it("タイトル接頭辞と突き合わせて番号に解決する手順が無い", () => {
+    // **消した手順そのものの文言を見る。** 「エピックID」や「接頭辞」まで禁じると、
+    // なぜ推測してはいけないかの説明も書けなくなる（実際、理由を書いた最初の版が
+    // この検査に引っかかった）。手順を指す語だけに絞る
+    const text = section(skill, EXTRACT_HEADING) ?? "";
+
+    expect(text).not.toContain("突き合わせ");
+    expect(text).not.toContain("番号に解決");
+  });
+
+  it("本文を「両方の形に直しておく」という指示も無い（解決手順とセットで消す）", () => {
+    // 解決手順だけ消して直す指示が残ると、何を直すのか分からない記述になる
+    expect(section(skill, EXTRACT_HEADING) ?? "").not.toContain("両方の形に直して");
+  });
+
+  it("依存の読み取り自体は残っている（回帰）", () => {
+    // 手順を消しすぎて「依存をどこから読むか」まで無くさない
+    const text = section(skill, EXTRACT_HEADING) ?? "";
+
+    expect(text).toContain("## 依存");
+    expect(text).toContain("### 依存");
+  });
+
+  it("併記されている場合の読み方は残っている（回帰）", () => {
+    expect(section(skill, EXTRACT_HEADING) ?? "").toContain("E2-2（#6）");
+  });
+
+  it("番号が併記されていない依存に出会ったときの扱いが書いてある", () => {
+    // **黙って無視させない。** 解決手順を消したので、出会った場合に何をするかが
+    // 書かれていないと、依存が無いものとして着手してしまう（この Issue の発端そのもの）
+    const text = section(skill, EXTRACT_HEADING) ?? "";
+
+    expect(text).toContain("停止");
+  });
+});
+
+describe("CLAUDE.md の「依存の書き方」が現状と食い違っていない（DoD）", () => {
+  it("「依存の書き方」の節がある", () => {
+    expect(section(claudeMd, DEPENDENCY_HEADING)).toBeDefined();
+  });
+
+  it("両方を書くという方針は残っている（回帰）", () => {
+    const text = section(claudeMd, DEPENDENCY_HEADING) ?? "";
+
+    expect(text).toContain("エピックIDと Issue 番号の両方");
+  });
+
+  it("「触ったときに直す」という、対象が無い指示が残っていない", () => {
+    // 対象は #70 で0件にした。残しておくと、いつまでも起きない作業を探すことになる
+    expect(section(claudeMd, DEPENDENCY_HEADING) ?? "").not.toContain("触ったときに");
+  });
+
+  it("併記の例が残っている（回帰）", () => {
+    expect(section(claudeMd, DEPENDENCY_HEADING) ?? "").toContain("E2-2（#6）");
   });
 });
