@@ -164,17 +164,70 @@ describe("設定した丸めが summary / today / week に反映される（DoD�
     await createTodayCommand(deps(local(13, 12)), loadFrom()).run([], io);
 
     expect(cells(out[1])).toEqual(["work", "8m"]);
-    // 書いた値そのものは正しいので、警告は出さない
-    expect(err).toEqual([]);
   });
 
-  it("floor / nearest も設定どおりに効く", async () => {
-    await writeConfig({ rounding: { unitMinutes: 15, mode: "floor" } });
-    await record(local(13, 9), local(13, 9, 20), "設計 #work");
+  it("片方だけの指定は、効かないまま黙らずに欠けている側を警告する", async () => {
+    // 値そのものは正しいので当初は警告していなかったが、それだと
+    // 「`config set rounding.unitMinutes 15` を打ったのに集計が変わらず stderr も空」
+    // になる。打ち間違いを警告する理由と同じなので警告する（レビューで指摘）
+    await writeConfig({ rounding: { unitMinutes: 15 } });
+    await record(local(13, 9), local(13, 9, 8), "設計 #work");
 
     await createTodayCommand(deps(local(13, 12)), loadFrom()).run([], io);
 
+    expect(err.join("\n")).toContain("rounding.mode");
+  });
+
+  it("丸め方だけの指定でも、欠けている単位を警告する（境界）", async () => {
+    await writeConfig({ rounding: { mode: "ceil" } });
+    await record(local(13, 9), local(13, 9, 8), "設計 #work");
+
+    await createTodayCommand(deps(local(13, 12)), loadFrom()).run([], io);
+
+    expect(err.join("\n")).toContain("rounding.unitMinutes");
+    expect(cells(out[1])).toEqual(["work", "8m"]);
+  });
+
+  it("両方揃っていれば警告しない（境界）", async () => {
+    await writeConfig(CEIL_15);
+    await record(local(13, 9), local(13, 9, 8), "設計 #work");
+
+    await createTodayCommand(deps(local(13, 12)), loadFrom()).run([], io);
+
+    expect(err).toEqual([]);
+  });
+
+  it("ファイルの単位と環境変数の丸め方が組み合わさっても効く（層をまたぐ境界）", async () => {
+    // 片方ずつ別の層に書かれている場合。どちらか一方の層だけを見ていると
+    // 「片方しか無い」と誤って警告することになる
+    await writeConfig({ rounding: { unitMinutes: 15 } });
+    await record(local(13, 9), local(13, 9, 8), "設計 #work");
+
+    await createTodayCommand(deps(local(13, 12)), loadFrom({ TOCK_ROUNDING_MODE: "ceil" })).run(
+      [],
+      io,
+    );
+
     expect(cells(out[1])).toEqual(["work", "15m"]);
+    expect(err).toEqual([]);
+  });
+
+  it("floor / nearest / ceil が互いに違う結果になる入力で、設定どおりに効く", async () => {
+    // 8分・15分単位: floor → 0s、nearest → 15m、ceil → 15m。
+    // 20分だと floor と nearest がどちらも 15m で、取り違えても通る（レビューで指摘）
+    await record(local(13, 9), local(13, 9, 8), "設計 #work");
+
+    const shown = async (mode: string): Promise<string[]> => {
+      await writeConfig({ rounding: { unitMinutes: 15, mode } });
+      out = [];
+      await createTodayCommand(deps(local(13, 12)), loadFrom()).run([], io);
+
+      return cells(out[1]);
+    };
+
+    expect(await shown("floor")).toEqual(["work", "0s"]);
+    expect(await shown("nearest")).toEqual(["work", "15m"]);
+    expect(await shown("ceil")).toEqual(["work", "15m"]);
   });
 });
 
@@ -205,9 +258,10 @@ describe("week の各行が横に閉じる（DoD の一部）", () => {
 
     await createWeekCommand(deps(local(13, 12)), loadFrom()).run([], io);
 
+    // 右端だけ見ると、日別合計を足してから丸める別実装と区別できない（レビューで指摘）
     const total = cells(out.at(-1));
     expect(total[0]).toBe("合計");
-    expect(total.at(-1)).toBe("45m");
+    expect(total.slice(1)).toEqual(["15m", "15m", "15m", "0s", "0s", "0s", "0s", "45m"]);
   });
 });
 

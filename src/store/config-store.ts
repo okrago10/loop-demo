@@ -6,6 +6,7 @@ import {
   type ConfigResult,
   overrideFromEnv,
   parseConfigFile,
+  warnIncompleteConfig,
 } from "../domain/config.js";
 
 /**
@@ -143,5 +144,7 @@ export async function loadEffectiveConfig(
   store: ConfigStore,
   env: Readonly<Record<string, string | undefined>>,
 ): Promise<ConfigResult> {
-  return overrideFromEnv(await store.read(), env);
+  // 層を重ね終えてから、組み合わせとして成り立たない設定を警告する。
+  // 「ファイルに単位だけ書き、環境変数で丸め方を足す」があるので、途中の段では判定できない
+  return warnIncompleteConfig(overrideFromEnv(await store.read(), env));
 }

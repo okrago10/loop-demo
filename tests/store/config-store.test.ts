@@ -315,3 +315,54 @@ describe("入れ子のキーの書き込み（#63）", () => {
     expect(warnings).toEqual([]);
   });
 });
+
+describe("片方だけの丸めを黙って無効にしない（レビュー指摘）", () => {
+  it("単位だけ設定されていたら、欠けている丸め方を警告する", async () => {
+    await writeFile(path, JSON.stringify({ rounding: { unitMinutes: 15 } }), "utf8");
+
+    const { config, warnings } = await loadEffectiveConfig(createJsonConfigStore(path), {});
+
+    expect(roundingRuleOf(config)).toBeUndefined();
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("rounding.mode");
+  });
+
+  it("丸め方だけ設定されていたら、欠けている単位を警告する", async () => {
+    await writeFile(path, JSON.stringify({ rounding: { mode: "ceil" } }), "utf8");
+
+    const { warnings } = await loadEffectiveConfig(createJsonConfigStore(path), {});
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("rounding.unitMinutes");
+  });
+
+  it("ファイルと環境変数に1つずつ書かれていれば警告しない（層をまたぐ境界）", async () => {
+    // **層を重ね終えてから判定する。** 途中の段（`parseConfigFile` だけ）で見ると、
+    // 環境変数で足される側が見えず、揃っているのに警告することになる
+    await writeFile(path, JSON.stringify({ rounding: { unitMinutes: 15 } }), "utf8");
+
+    const { config, warnings } = await loadEffectiveConfig(createJsonConfigStore(path), {
+      TOCK_ROUNDING_MODE: "ceil",
+    });
+
+    expect(roundingRuleOf(config)).toEqual({ unitMinutes: 15, mode: "ceil" });
+    expect(warnings).toEqual([]);
+  });
+
+  it("両方とも未設定なら警告しない（既定＝丸めない。境界）", async () => {
+    const { warnings } = await loadEffectiveConfig(createJsonConfigStore(path), {});
+
+    expect(warnings).toEqual([]);
+  });
+
+  it("不正な値で片方が落ちた結果、片方だけになった場合も警告する（境界）", async () => {
+    // `mode` が既定へ落ちるので「単位だけ」になる。値の警告と組み合わせの警告で2件
+    await writeFile(path, JSON.stringify({ rounding: { unitMinutes: 15, mode: "round" } }), "utf8");
+
+    const { config, warnings } = await loadEffectiveConfig(createJsonConfigStore(path), {});
+
+    expect(roundingRuleOf(config)).toBeUndefined();
+    expect(warnings).toHaveLength(2);
+    expect(warnings.join("\n")).toContain("rounding.mode");
+  });
+});

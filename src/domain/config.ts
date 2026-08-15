@@ -53,6 +53,40 @@ export function roundingRuleOf(config: Config): RoundingRule | undefined {
   return unitMinutes === undefined || mode === undefined ? undefined : { unitMinutes, mode };
 }
 
+/**
+ * 組み合わせて初めて分かる「値は正しいのに効かない」設定の警告。
+ *
+ * **片方だけの丸めは黙って無効にしない。** 欠けている側を補うことはしない——書いていない
+ * `mode` をこちらで決めると、利用者が選んでいない寄せ方で報告の値が変わる。しかし
+ * 黙って無視すると、`config set rounding.unitMinutes 15` を打ったあと集計が変わらず、
+ * stderr も空、という状態になる。打ち間違い（`unitMintues`）を警告する理由と同じ
+ * （「設定したのに効かない」理由が読めない）なので、こちらも警告する（レビューで指摘）。
+ *
+ * **値ごとの検査（`parseConfigFile` / `overrideFromEnv`）とは別の段で行う。** 設定ファイルに
+ * 単位だけ書き、環境変数で丸め方を足す、という組み合わせがあるため、どちらか一方の段では
+ * 最終形が分からない。
+ */
+export function warnIncompleteConfig(result: ConfigResult): ConfigResult {
+  const hasUnit = result.config.rounding?.unitMinutes !== undefined;
+  const hasMode = result.config.rounding?.mode !== undefined;
+
+  if (hasUnit === hasMode) {
+    return result;
+  }
+
+  const given: ConfigKey = hasUnit ? "rounding.unitMinutes" : "rounding.mode";
+  const missing: ConfigKey = hasUnit ? "rounding.mode" : "rounding.unitMinutes";
+
+  return {
+    config: result.config,
+    warnings: [
+      ...result.warnings,
+      `${given} だけでは丸めません。${missing} も指定してください` +
+        `（${describeConfigKey(missing)}）`,
+    ],
+  };
+}
+
 /** 丸め方として書ける値。 */
 const ROUNDING_MODES: readonly RoundingMode[] = ["ceil", "floor", "nearest"];
 

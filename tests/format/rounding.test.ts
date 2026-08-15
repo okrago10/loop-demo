@@ -12,7 +12,12 @@ import { formatWeekLines } from "../../src/format/week.js";
  * **案A（葉のセルだけを丸め、合計は軸ごとに足す）で実装している。** Issue のスコープには
  * 「`合計` 行はタグ別の和」と書かれているが、そのとおりにすると**階層タグの時間を
  * 二重に数える**（`work/tock` の時間は `work` にも入るため）。`合計` は実時間であるという
- * `domain/summary.ts` の不変条件を壊さない案Aを採った（#63 のコメントで合意）。
+ * `domain/summary.ts` の不変条件を壊さない案Aを採った。
+ *
+ * **Issue #63 のスコープ / DoD はまだ案Aの文言になっていない。** #63 には着手前に止めて
+ * 出した A/B の判断依頼が残っているだけで、案Aで進める指示は GitHub の外（ループの
+ * 実行者）で受け取った。受け入れ条件を実装に合わせて書き換えるのは禁止されているので、
+ * **Issue 側の文言を直すのは人の作業として残している**（レビューで指摘）。
  *
  * したがってこのファイルが固定するのは次の2つ。
  *
@@ -106,18 +111,30 @@ describe("summary / today に丸めが反映される（DoD）", () => {
     expect(cells(lines[1] ?? "")).toEqual(["work", "30m"]);
   });
 
-  it("floor / nearest も設定どおりに効く", () => {
-    const floored = formatSummaryLines("2026-08-14", summary([["work", 20]], 20), {
-      unitMinutes: 15,
-      mode: "floor",
-    });
-    const nearest = formatSummaryLines("2026-08-14", summary([["work", 20]], 20), {
-      unitMinutes: 15,
+  it("floor / nearest / ceil が互いに違う結果になる入力で、設定どおりに効く", () => {
+    // **3つが同じ値にならない入力を選ぶ。** 20分・15分単位だと floor も nearest も 15m で、
+    // nearest を floor に取り違えて渡しても通ってしまう（レビューで指摘）。
+    // 8分なら floor → 0s、nearest → 15m（余り 8×2 ≥ 15 なので上げる）、ceil → 15m
+    const of = (mode: RoundingRule["mode"]): string[] =>
+      cells(
+        formatSummaryLines("2026-08-14", summary([["work", 8]], 8), { unitMinutes: 15, mode })[1] ??
+          "",
+      );
+
+    expect(of("floor")).toEqual(["work", "0s"]);
+    expect(of("nearest")).toEqual(["work", "15m"]);
+    expect(of("ceil")).toEqual(["work", "15m"]);
+  });
+
+  it("nearest はちょうど半分を上げる側に寄せる（境界）", () => {
+    // 5分・10分単位はちょうど半分。どちらに寄せるかを決めておかないと、
+    // 同じ入力で結果が変わって見える（`domain/rounding.ts` の約束）
+    const lines = formatSummaryLines("2026-08-14", summary([["work", 5]], 5), {
+      unitMinutes: 10,
       mode: "nearest",
     });
 
-    expect(cells(floored[1] ?? "")).toEqual(["work", "15m"]);
-    expect(cells(nearest[1] ?? "")).toEqual(["work", "15m"]);
+    expect(cells(lines[1] ?? "")).toEqual(["work", "10m"]);
   });
 });
 
@@ -149,9 +166,11 @@ describe("week に丸めが反映され、各行が横に閉じる（DoD）", ()
       CEIL_15,
     );
 
+    // **右端だけ見ない。** 総合計が偶然一致する別実装（日別合計を足してから丸める等）と
+    // 区別できるよう、日別セルまで固定する（レビューで指摘）
     const total = cells(lines.at(-1) ?? "");
     expect(total[0]).toBe("合計");
-    expect(total.at(-1)).toBe("45m");
+    expect(total.slice(1)).toEqual(["15m", "15m", "15m", "0s", "0s", "0s", "0s", "45m"]);
   });
 
   it("`合計` 行はタグ別セルの和ではない（階層タグを二重に数えない。案A）", () => {
