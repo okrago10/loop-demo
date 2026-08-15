@@ -112,6 +112,85 @@ function writeAll(lines: readonly string[], write: (line: string) => void): void
   }
 }
 
+/**
+ * `code` を持つオブジェクトとして読めるか。
+ *
+ * Node の書き込みエラーは `Error` に `code` が乗った形で届くが、`error` イベントで
+ * 渡ってくる値の型は保証されていない。`Error` でない値でも落ちないようにする。
+ */
+function isRecordObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+/** 書き込み先として必要な最小の形。テストから偽のストリームを渡せるようにする。 */
+export interface LineStream {
+  write(chunk: string): boolean;
+  on(event: "error", listener: (error: unknown) => void): unknown;
+}
+
+/**
+ * 読み手がパイプを閉じたことによる書き込みエラーか。
+ *
+ * `tock --help | head -3` のように読み手が先に終わると、書き込みは `EPIPE` で失敗する。
+ * これは**利用者の操作として正常**なので、他の書き込みエラーとは区別する。
+ */
+export function isBrokenPipe(error: unknown): boolean {
+  return isRecordObject(error) && error["code"] === "EPIPE";
+}
+
+/**
+ * ストリームへ1行ずつ書く関数を作る。**`EPIPE` は静かに飲む。**
+ *
+ * `| head` や `| less` で見て途中でやめる、`| grep -m1` で1件だけ拾う、といった使い方は
+ * CLI では普通の操作である。それでスタックトレースが出ると、利用者からはツールが
+ * 壊れているように見える（#49）。
+ *
+ * **`error` を購読することが本質。** Node は購読者のいない `error` イベントを
+ * 未処理として throw し、プロセスを異常終了させる。#49 の原因はこれで、
+ * 購読していれば、`EPIPE` かどうかを見て分ける余地が生まれる。
+ *
+ * **`EPIPE` 以外は飲まない。** ディスクが一杯（`ENOSPC`）のような本当の失敗を黙って
+ * 捨てると、出力が欠けたことに気づけない。呼び出し側へ渡して報告させる。
+ *
+ * **`EPIPE` のあとは書き込みを止める。** 閉じた先へ書き続けると同じ失敗を繰り返すだけで、
+ * 書けるようになることはない。`EPIPE` 以外では止めない——1行が書けなかったことと、
+ * 以降がすべて書けないことは別だから。
+ */
+export function createLineWriter(
+  stream: LineStream,
+  onWriteError: (error: unknown) => void,
+): (line: string) => void {
+  let broken = false;
+
+  // 非同期に届く経路。`write` が成功して返ったあとに `error` として通知される
+  stream.on("error", (error) => {
+    if (isBrokenPipe(error)) {
+      broken = true;
+      return;
+    }
+
+    onWriteError(error);
+  });
+
+  return (line: string): void => {
+    if (broken) {
+      return;
+    }
+
+    try {
+      // 同期的に投げる経路。閉じた直後の書き込みはここで失敗することがある
+      stream.write(`${line}\n`);
+    } catch (error) {
+      if (isBrokenPipe(error)) {
+        broken = true;
+        return;
+      }
+
+      onWriteError(error);
+    }
+  };
+}
+
 /** 例外から利用者に見せるメッセージを取り出す。Error でない値を投げられても落ちない。 */
 function messageOf(error: unknown): string {
   if (error instanceof Error) {
@@ -262,14 +341,49 @@ function invokedAsEntryPoint(): boolean {
 }
 
 if (invokedAsEntryPoint()) {
-  process.exitCode = await run(process.argv.slice(2), {
-    out: (line) => {
-      process.stdout.write(`${line}\n`);
-    },
-    err: (line) => {
-      process.stderr.write(`${line}\n`);
-    },
+  // `EPIPE` 以外の書き込みエラーは内部エラーとして扱う。**`run` の戻り値で上書きしない**
+  // ——出力が欠けたのに終了コード 0 を返すと、スクリプトから成功と見分けられない
+  let writeFailed = false;
+  let writeReported = false;
+  let reportedCode: unknown;
+  const reportWriteError = (error: unknown): void => {
+    writeFailed = true;
+
+    // **ここで直接立てる。** 書き込みエラーは `error` イベントとして非同期に届くので、
+    // 下の代入が済んだあとに来ることがある（`> /dev/full` で実際にそうなった）。
+    // 戻り値の代入だけに任せると、出力が欠けたのに終了コード 0 で終わる
+    process.exitCode = EXIT_INTERNAL;
+
+    // **同じ原因を繰り返し報告しない。** 書き込みは行ごとなので、`> /dev/full` のように
+    // 以降も必ず失敗する相手だと、同じ `ENOSPC` が行数ぶん stderr に並ぶ（レビューで指摘）。
+    // 利用者に伝わるのは「書けなかった」ことと理由の1組で足りる。
+    //
+    // **`code` が変わったら改めて報告する。** 別の原因まで飲むと、最初の失敗のあとに
+    // 起きた本当の問題が見えなくなる
+    const code = isRecordObject(error) ? error["code"] : undefined;
+    if (writeReported && code === reportedCode) {
+      return;
+    }
+    writeReported = true;
+    reportedCode = code;
+
+    try {
+      process.stderr.write(`${messageOf(error)}\n`);
+    } catch {
+      // stderr 自体が書けないなら伝える先が無い。終了コードだけを残す
+    }
+  };
+
+  const code = await run(process.argv.slice(2), {
+    out: createLineWriter(process.stdout, reportWriteError),
+    err: createLineWriter(process.stderr, reportWriteError),
     version: readVersion,
     commands: buildCommands(),
   });
+
+  // `EPIPE` は終了コードを変えない。読み手が先に終わるのは正常な操作であり、
+  // パイプライン全体の終了コードは読み手のもの（`| head` なら head）になる
+  if (!writeFailed) {
+    process.exitCode = code;
+  }
 }

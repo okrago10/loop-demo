@@ -228,6 +228,12 @@ export function createJsonlStore(filePath: string): Store {
       await appendRecord(filePath, { op: "delete", id });
     },
 
+    async listAll(): Promise<Entry[]> {
+      // 畳み込みの結果をそのまま返す。**絞り込みが無いので範囲の検査も要らない**
+      // （`listByRange` が持つ `NaN` や `end < start` の検査は、範囲があってこそのもの）
+      return [...(await readState(filePath)).values()];
+    },
+
     async listByRange(range: StoreRange): Promise<Entry[]> {
       const from = range.start.getTime();
       const to = range.end.getTime();
