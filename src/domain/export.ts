@@ -15,8 +15,14 @@ import { overlapsPeriod, type Period } from "./period.js";
  * **並びは `log` と逆の古い順にする。** `log` は「直近の記録を見る」ためのものなので
  * 新しい順が読みやすいが、書き出したものは表計算に貼って上から時系列に読む。
  */
-export function selectExportEntries(entries: readonly Entry[], period: Period): Entry[] {
-  const selected = entries.filter((entry) => overlapsPeriod(entry, period));
+/**
+ * **`period` を省略すると期間で絞らない。** 「全期間」を `Date` が表せる最大幅の期間で
+ * 表すのをやめた（#57）。絞らないことは範囲の一種ではなく範囲が無いことなので、
+ * 値の有無で表す（`selectLogRows` と同じ扱い）。
+ */
+export function selectExportEntries(entries: readonly Entry[], period?: Period): Entry[] {
+  const selected =
+    period === undefined ? [...entries] : entries.filter((entry) => overlapsPeriod(entry, period));
 
   // toSorted は元の配列を書き換えず、同じ鍵の要素の順序を保つ（開始時刻が同じ記録は保存順）
   return selected.toSorted((a, b) => startedAt(a).getTime() - startedAt(b).getTime());

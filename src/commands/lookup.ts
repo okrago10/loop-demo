@@ -1,27 +1,16 @@
 import { UserError } from "../cli.js";
 import { matchById, shortenId, shortIdLength } from "../domain/entry-id.js";
 import type { Entry } from "../domain/entry.js";
-import type { Period } from "../domain/period.js";
-import type { Store } from "../store/store.js";
 
 /**
  * id で記録を引く。
  *
- * **`Store` に「id で1件取る」操作も「全件返す」操作も無い**ため、`listByRange` に
- * `Date` が表せる最大幅を渡して全件を得てから絞る。編集・削除（#17）と期間指定なしの
- * 一覧（#16）が同じ細工を必要とするので、コピーを増やさないようここに集約する。
+ * **`Store` に「id で1件取る」操作は無い**ため、全件を得てから絞る。編集・削除（#17）が
+ * 同じ引き当てを必要とするので、規則をここに集約する。
  *
- * **この形は Store の制約への回避策であり、#57 で解消する予定。**
- * あちらが入ったら、この2つはその操作に置き換えられる。
+ * 全件の取得は `Store.listAll`（#57）を使う。以前は `listByRange` に `Date` が表せる
+ * 最大幅を渡していたが、その細工は #57 で解消した。
  */
-
-/** 期間で絞らないときに使う範囲。`Date` が表せる全範囲。 */
-export const ALL_TIME: Period = { start: new Date(-8.64e15), end: new Date(8.64e15) };
-
-/** 保存されている記録をすべて返す。並び順は store の返す順（追加した順）。 */
-export async function listAllEntries(store: Store): Promise<Entry[]> {
-  return store.listByRange(ALL_TIME);
-}
 
 /**
  * id または その接頭辞から記録を1件に決める。決まらなければ `UserError`。
