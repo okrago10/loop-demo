@@ -83,12 +83,20 @@ describe("status（実行中あり）", () => {
     expect(out.join("\n")).toContain("1h 23m");
   });
 
-  it("開始時刻を表示する", async () => {
+  it("**開始時刻を、保存形式ではなくローカルの読める形で表示する**（#45）", async () => {
+    // 以前はここが保存形式（`2026-08-12T09:00:00.000Z`）そのままだった。
+    // **期待値を壁時計から組み立てる**——`09:00:00` と直書きすると UTC でしか通らない
     await startAt9();
 
     await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z"))).run([], io);
 
-    expect(out.join("\n")).toContain("2026-08-12T09:00:00.000Z");
+    const startedAt = new Date("2026-08-12T09:00:00Z");
+    const clock = [startedAt.getHours(), startedAt.getMinutes(), startedAt.getSeconds()]
+      .map((part) => String(part).padStart(2, "0"))
+      .join(":");
+
+    expect(out.join("\n")).toContain(clock);
+    expect(out.join("\n")).not.toContain("2026-08-12T09:00:00.000Z");
   });
 
   it("stdout に出て stderr は空、終了コードは 0 相当（例外を投げない）", async () => {
