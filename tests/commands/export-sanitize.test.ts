@@ -90,16 +90,26 @@ function dataLines(): readonly string[] {
 }
 
 /**
- * データ行の `note` 列（最後の列）。
+ * データ行の列を取り出す。並びは `CSV_HEADER`（id / start / end / duration_min / tags / note）。
  *
  * **行の末尾で判定してはいけない。** 無害化した `'=1+1` も「`=1+1` で終わる」ので、
  * `endsWith` では素通しと区別が付かない（最初この取り違えでテストが通らなかった）。
  * 見たいのは**セルの先頭**が数式の始まりかどうか。
  *
- * このテストの作業名にカンマは含めないので、単純に区切って最後を取れば足りる。
+ * このテストの値にカンマは含めないので、単純に区切れば足りる。
  */
+function cellAt(line: string | undefined, index: number): string {
+  return (line ?? "").split(",")[index] ?? "";
+}
+
+/** `tags` 列。 */
+function tagsCell(line: string | undefined): string {
+  return cellAt(line, 4);
+}
+
+/** `note` 列。 */
 function noteCell(line: string | undefined): string {
-  return (line ?? "").split(",").at(-1) ?? "";
+  return cellAt(line, 5);
 }
 
 /** 表計算ソフトが数式の始まりとみなす先頭文字。 */
@@ -128,10 +138,11 @@ describe("`=` `+` `-` `@` で始まる作業名・タグ（DoD）", () => {
     expect(cell).toContain(note);
   });
 
-  it("**タグにも当たる**（作業名だけではない）", async () => {
-    // タグは `#` 付きで打つと `normalizeTag` が落とすので、危険な形は作業名側に出るが、
-    // 列ごとに当てていることは確かめておく
-    await record(9, "=1+1 #work");
+  it("**タグの列にも当たる**（作業名の列だけではない）", async () => {
+    // **タグも危険な先頭文字を持てる。** `#=1+1` は先頭の `#` が剥がれて
+    // タグ `=1+1` として保存される（レビューで指摘。実測で確認した）。
+    // note 列だけを見ていると、無害化を note に狭めた実装でもテストが通ってしまう
+    await record(9, "作業 #=1+1");
 
     await createExportCommand(deps(local(12, 18)), defaultConfig).run(
       ["--format", "csv", "--sanitize"],
@@ -139,8 +150,17 @@ describe("`=` `+` `-` `@` で始まる作業名・タグ（DoD）", () => {
     );
 
     const [line] = dataLines();
-    expect(line).toContain("work");
-    expect(FORMULA_LEAD.test(noteCell(line))).toBe(false);
+    expect(tagsCell(line)).toContain("=1+1");
+    expect(FORMULA_LEAD.test(tagsCell(line))).toBe(false);
+    expect(noteCell(line)).toBe("作業");
+  });
+
+  it("既定ではタグの列も素通しする（無害化しているのは `--sanitize` のときだけ）", async () => {
+    await record(9, "作業 #=1+1");
+
+    await createExportCommand(deps(local(12, 18)), defaultConfig).run(["--format", "csv"], io);
+
+    expect(tagsCell(dataLines()[0])).toBe("=1+1");
   });
 
   it("安全な作業名は `--sanitize` を付けても変わらない", async () => {
