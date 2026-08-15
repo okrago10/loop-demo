@@ -30,7 +30,13 @@ const DECIMAL_INTEGER = /^[+-]?(0|[1-9]\d*)$/;
 /** `tock week` の使い方。 */
 const USAGE: CommandUsage = {
   options: [
-    { name: "--offset", argument: "週数", summary: "何週前を見るか（0 が今週。既定 0）" },
+    {
+      name: "--offset",
+      argument: "週数",
+      // **向きを符号で明示する。**「何週前」と書くと正の数が過去に読めるが、実際の
+      // 符号は逆（-1 が先週、1 が翌週）で、説明どおりに打つと意図と違う週が出ていた（#89）
+      summary: "週のずらし（-1 が先週、1 が翌週。既定 0 = 今週）",
+    },
     {
       name: "--week-starts-on",
       argument: "曜日",
@@ -40,7 +46,7 @@ const USAGE: CommandUsage = {
   ],
   examples: [
     "tock week",
-    "tock week --offset 1",
+    "tock week --offset -1",
     "tock week --week-starts-on 1",
     "tock week --heatmap",
   ],
