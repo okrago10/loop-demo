@@ -73,7 +73,6 @@ export function createLogCommand(deps: CommandDeps, loadConfig: LoadConfig): Com
       // **期間で絞らずに全件を読む。** 短縮 id の桁数は「保存されている全記録の中で
       // 重複しない長さ」でなければならず、一覧に出る分だけでは決められない
       // （期間の外の記録と先頭が同じだと、出した文字列で引けなくなる）。
-      // `listByRange` はどの範囲を渡してもファイル全体を読むので、読み込みは増えない。
       // 期間での絞り込みは `selectLogRows` が行う
       const entries = await deps.store.listAll();
       const rows = selectLogRows(
