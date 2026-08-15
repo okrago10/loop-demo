@@ -308,6 +308,63 @@ describe("異常終了で残った古いロック（DoD のスコープ）", () 
   });
 });
 
+describe("解放するのは自分が取ったロックだけ（レビュー指摘）", () => {
+  it("**取り直された相手のロックを、解放時に消さない**", async () => {
+    // 自分の処理が `staleMs` を超えて長引くと、待っていた側が「異常終了で残った」と
+    // みなして取り除き、握り直す。そこで無条件に消すと**動いている相手のロックを奪う**。
+    // 実測では、そのあと3つ目のプロセスが並行して入れてしまった
+    const { options } = controllable({ timeoutMs: 100, staleMs: 1_000 });
+    const other = JSON.stringify({ pid: 99_999, at: 0, token: "他のプロセスの取得" });
+
+    await withLock(lockPath, options, async () => {
+      // 待っていた側が回収して握り直した状況
+      await writeFile(lockPath, other, "utf8");
+    });
+
+    await expect(readFile(lockPath, "utf8")).resolves.toBe(other);
+  });
+
+  it("奪われたあとでも、相手が解放すれば取得できる（手詰まりにならない）", async () => {
+    const { options } = controllable({ timeoutMs: 100, staleMs: 1_000 });
+
+    await withLock(lockPath, options, async () => {
+      await writeFile(lockPath, JSON.stringify({ pid: 99_999, at: 0, token: "別" }), "utf8");
+    });
+    await rm(lockPath, { force: true });
+
+    await expect(withLock(lockPath, options, () => Promise.resolve("取れた"))).resolves.toBe(
+      "取れた",
+    );
+  });
+
+  it("中身が読めなくなっていたら消さない（境界）", async () => {
+    // 自分のものだと確かめられない以上、残すほうが安全。残っても `staleMs` で回収される
+    const { options } = controllable({ timeoutMs: 100, staleMs: 1_000 });
+
+    await withLock(lockPath, options, async () => {
+      await writeFile(lockPath, "壊れています", "utf8");
+    });
+
+    await expect(readFile(lockPath, "utf8")).resolves.toBe("壊れています");
+  });
+
+  it("取得のたびに違う token を書く（同じプロセスでも取り違えない）", async () => {
+    // `pid` だけだと、同じプロセスの前の取得と区別が付かない
+    const { options } = controllable();
+    const tokens: unknown[] = [];
+
+    for (const attempt of [1, 2, 3]) {
+      void attempt;
+      await withLock(lockPath, options, async () => {
+        tokens.push((JSON.parse(await readFile(lockPath, "utf8")) as { token: unknown }).token);
+      });
+    }
+
+    expect(new Set(tokens).size).toBe(3);
+    expect(tokens.every((token) => typeof token === "string" && token !== "")).toBe(true);
+  });
+});
+
 describe("既定の設定", () => {
   it("タイムアウトと古さの期限が、待てる長さになっている", () => {
     // 打刻は待たされると使われなくなる。一方で短すぎると、正常な書き込みが競合で落ちる

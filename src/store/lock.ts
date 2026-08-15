@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rm, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 
@@ -17,10 +18,16 @@ import { dirname } from "node:path";
  * 1つしか成功しないので、勝った側だけが処理に入れる。
  */
 
-/** ロックファイルに書く中身。取得した時刻を後から読めるようにする。 */
+/**
+ * ロックファイルに書く中身。取得した時刻と、**誰が取ったか**を後から読めるようにする。
+ *
+ * `token` は取得のたびに作り直す。**`pid` では足りない**——同じプロセスの別の取得
+ * （前の取得が古いとみなされて回収され、握り直した場合）を区別できない。
+ */
 interface LockFile {
   readonly pid: number;
   readonly at: number;
+  readonly token: string;
 }
 
 export interface LockOptions {
@@ -75,6 +82,28 @@ function isAlreadyExists(error: unknown): boolean {
   );
 }
 
+/** いま置かれているロックファイルの中身。読めなければ `undefined`。 */
+async function readLock(lockPath: string): Promise<{ at?: number; token?: string } | undefined> {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await readFile(lockPath, "utf8"));
+  } catch {
+    // 無い・読めない・JSON でない
+    return undefined;
+  }
+
+  if (typeof raw !== "object" || raw === null) {
+    return undefined;
+  }
+
+  const { at, token } = raw as { at?: unknown; token?: unknown };
+
+  return {
+    ...(typeof at === "number" && Number.isFinite(at) ? { at } : {}),
+    ...(typeof token === "string" ? { token } : {}),
+  };
+}
+
 /**
  * ロックが取得された時刻。
  *
@@ -83,16 +112,9 @@ function isAlreadyExists(error: unknown): boolean {
  * 別の手がかりへ落とす。それも読めなければ「非常に古い」として扱う。
  */
 async function acquiredAt(lockPath: string): Promise<number> {
-  try {
-    const raw: unknown = JSON.parse(await readFile(lockPath, "utf8"));
-    if (typeof raw === "object" && raw !== null) {
-      const at = (raw as { at?: unknown }).at;
-      if (typeof at === "number" && Number.isFinite(at)) {
-        return at;
-      }
-    }
-  } catch {
-    // 読めない・JSON でない・`at` が無い。次の手がかりへ
+  const at = (await readLock(lockPath))?.at;
+  if (at !== undefined) {
+    return at;
   }
 
   try {
@@ -103,26 +125,62 @@ async function acquiredAt(lockPath: string): Promise<number> {
   }
 }
 
-/** ロックを1回だけ取りにいく。取れたら `true`。 */
-async function tryAcquire(lockPath: string, options: LockOptions): Promise<boolean> {
-  const content: LockFile = { pid: process.pid, at: options.now() };
+/**
+ * ロックを1回だけ取りにいく。取れたら、その取得を表す token を返す。
+ *
+ * **`wx` で作ったあと書き込みに失敗したら、自分で消してから投げる。** この時点では
+ * `withLock` の `finally` はまだ始まっておらず、ここで消さないと**空のロックファイルが
+ * 残ったまま例外が外へ出る。** そうなると `staleMs` が経つか手で消すまで、以降の
+ * 書き込みがすべてタイムアウトする。
+ */
+async function tryAcquire(lockPath: string, options: LockOptions): Promise<string | undefined> {
+  const content: LockFile = { pid: process.pid, at: options.now(), token: randomUUID() };
 
+  let handle;
   try {
-    const handle = await open(lockPath, "wx");
-    try {
-      await handle.writeFile(JSON.stringify(content), "utf8");
-    } finally {
-      await handle.close();
-    }
-
-    return true;
+    handle = await open(lockPath, "wx");
   } catch (error) {
     if (!isAlreadyExists(error)) {
       throw error;
     }
 
-    return false;
+    return undefined;
   }
+
+  try {
+    try {
+      await handle.writeFile(JSON.stringify(content), "utf8");
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    await rm(lockPath, { force: true });
+    throw error;
+  }
+
+  return content.token;
+}
+
+/**
+ * **自分が取ったロックだけを解放する。**
+ *
+ * 無条件に消してはいけない。自分の処理が `staleMs` を超えて長引くと、待っていた側が
+ * 「異常終了で残った」とみなして取り除き、自分のロックとして握り直す。そこでこちらが
+ * 無条件に消すと、**動いている相手のロックを奪う**ことになり、3つ目のプロセスが
+ * 並行して書き込めてしまう（実測で再現する）。
+ *
+ * 取得時に書いた token が残っているときだけ消す。**読んでから消すまでの隙間は残る**が、
+ * 無条件に消すのに比べれば窓は桁違いに小さい。
+ *
+ * **中身が読めなくなっていた場合も消さない。** 自分のものだと確かめられない以上、
+ * 残すほうが安全で、残っても `staleMs` の経過で回収される。
+ */
+async function release(lockPath: string, token: string): Promise<void> {
+  if ((await readLock(lockPath))?.token !== token) {
+    return;
+  }
+
+  await rm(lockPath, { force: true });
 }
 
 /**
@@ -140,9 +198,25 @@ export async function withLock<T>(
 ): Promise<T> {
   await mkdir(dirname(lockPath), { recursive: true });
 
+  const token = await acquire(lockPath, options);
+
+  try {
+    return await action();
+  } finally {
+    await release(lockPath, token);
+  }
+}
+
+/** 取れるまで待つ。待ち時間を使い切ったら `LockTimeoutError`。 */
+async function acquire(lockPath: string, options: LockOptions): Promise<string> {
   const startedAt = options.now();
 
-  while (!(await tryAcquire(lockPath, options))) {
+  for (;;) {
+    const token = await tryAcquire(lockPath, options);
+    if (token !== undefined) {
+      return token;
+    }
+
     // 異常終了で残ったロックなら取り除いて、次の試行で取りにいく
     if (options.now() - (await acquiredAt(lockPath)) > options.staleMs) {
       await rm(lockPath, { force: true });
@@ -157,11 +231,5 @@ export async function withLock<T>(
     }
 
     await options.wait(options.retryMs);
-  }
-
-  try {
-    return await action();
-  } finally {
-    await rm(lockPath, { force: true });
   }
 }
