@@ -26,6 +26,7 @@ import { createJsonlStore } from "./store/jsonl-store.js";
 import { LockTimeoutError } from "./store/lock.js";
 import { maxRunningMsOf } from "./domain/config.js";
 import { overrunWarning } from "./domain/overrun.js";
+import { DEFAULT_WIDTH, type Terminal } from "./format/terminal.js";
 import { resolveConfigPath, resolveStorePath, type Store } from "./store/store.js";
 import { readVersion } from "./version.js";
 
@@ -345,6 +346,7 @@ function buildRuntime(): Pick<CliDeps, "commands" | "noticesBeforeRun"> {
   // 設定を使わない打刻まで設定ファイルの状態に引きずられる
   const configStore = createJsonConfigStore(resolveConfigPath(process.env, homedir()));
   const loadConfig = () => loadEffectiveConfig(configStore, process.env);
+  const terminal = resolveTerminal(process.stdout);
 
   return {
     commands: [
@@ -352,10 +354,10 @@ function buildRuntime(): Pick<CliDeps, "commands" | "noticesBeforeRun"> {
       createStopCommand(deps, loadConfig),
       createStatusCommand(deps),
       createSwitchCommand(deps),
-      createTodayCommand(deps, loadConfig),
-      createSummaryCommand(deps, loadConfig),
+      createTodayCommand(deps, loadConfig, terminal),
+      createSummaryCommand(deps, loadConfig, terminal),
       createLogCommand(deps, loadConfig),
-      createWeekCommand(deps, loadConfig),
+      createWeekCommand(deps, loadConfig, terminal),
       createEditCommand(deps),
       createRmCommand(deps, confirmOnStdin),
       createExportCommand(deps, loadConfig),
@@ -393,6 +395,20 @@ export async function overrunNotices(
   const warning = overrunWarning(running, now, maxRunningMsOf(config));
 
   return warning === undefined ? [] : [warning];
+}
+
+/**
+ * 出力先の端末の性質を読む（#20）。
+ *
+ * **`columns` はパイプやリダイレクトでは取れない**（`undefined` になる）ので、既定の
+ * 桁数に落とす。`isTTY` も同じ理由で、`true` のときだけ対話端末とみなす
+ * （`undefined` を真と扱うと、パイプ越しにブロック文字が出る）。
+ */
+function resolveTerminal(stream: NodeJS.WriteStream): Terminal {
+  return {
+    width: stream.columns ?? DEFAULT_WIDTH,
+    isTty: stream.isTTY === true,
+  };
 }
 
 /**
