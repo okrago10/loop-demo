@@ -45,7 +45,10 @@ export function createStopCommand(deps: CommandDeps, loadConfig?: LoadConfig): C
       // ヘルプはここに届く前に `cli.ts` が処理する（#42）
       const { present: auto, rest: afterAuto } = takeFlag(argv, "--auto");
       const { value: note, rest } = takeOption(afterAuto, "--note");
-      const { at, rest: remaining } = resolveAt(rest, deps.now());
+      // **`now` は1回だけ取る**（`start` と同じ形）。`--at` の解釈と表示で別々に呼ぶと、
+      // 日付が変わる瞬間だけ「同じ日か」の判定が2つの時刻に基づくことになる（レビューで指摘）
+      const now = deps.now();
+      const { at, rest: remaining } = resolveAt(rest, now);
       rejectUnknownArgs(remaining, { command: "stop", usage: USAGE });
 
       // **`--at` と `--auto` は両立しない。** どちらも終了時刻を決める指定なので、
@@ -90,7 +93,17 @@ export function createStopCommand(deps: CommandDeps, loadConfig?: LoadConfig): C
       });
 
       io.out(`停止しました: ${formatDuration(durationMs(stopped))}`);
-      io.out(`終了時刻: ${formatMoment(endedAt(stopped) ?? deps.now(), deps.now())}`);
+
+      // **終了時刻が無ければ落とす。`now` で代用しない。** ここに来る `stopped` は
+      // `end` を必ず持つ（`createEntry` に `at` を渡している）が、万一欠けたときに
+      // 「今」を出すと**成功したように見える**。以前は空文字を出していたので、壊れて
+      // いることが画面から分かった。代用はそれを隠す方向の変更になる（レビューで指摘）
+      const end = endedAt(stopped);
+      if (end === undefined) {
+        throw new Error(`停止した記録に終了時刻がありません: ${stopped.id}`);
+      }
+
+      io.out(`終了時刻: ${formatMoment(end, now)}`);
     },
   };
 }

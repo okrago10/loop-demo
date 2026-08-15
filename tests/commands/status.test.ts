@@ -302,11 +302,31 @@ describe("開始時刻が未来の記録（DoD）", () => {
   });
 
   it("メッセージに記録の開始時刻と「未来」であることが含まれる", async () => {
+    // **保存形式ではなく、読める形で出す（#45）。** 期待値は壁時計から組み立てる——
+    // `2027-01-01 00:00:00` と直書きすると UTC でしか通らない。
+    // `NOW` とは別の日なので、`formatMoment` は日付も付ける
+    const future = new Date(FUTURE);
+    const shown = [
+      `${String(future.getFullYear())}-`,
+      String(future.getMonth() + 1).padStart(2, "0"),
+      `-${String(future.getDate()).padStart(2, "0")} `,
+      [future.getHours(), future.getMinutes(), future.getSeconds()]
+        .map((part) => String(part).padStart(2, "0"))
+        .join(":"),
+    ].join("");
     await saveFutureRunning();
 
-    await expect(createStatusCommand(deps(NOW)).run([], io)).rejects.toThrow(
-      new RegExp(`未来.*${FUTURE.replace(/[.]/g, "\\.")}|${FUTURE.replace(/[.]/g, "\\.")}.*未来`),
-    );
+    let message = "";
+    try {
+      await createStatusCommand(deps(NOW)).run([], io);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message).toContain("未来");
+    expect(message).toContain(shown);
+    // 保存形式の名残が混ざっていない
+    expect(message).not.toContain(FUTURE);
   });
 
   it("--short でも出力は1行に収まる", async () => {

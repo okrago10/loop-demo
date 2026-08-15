@@ -299,3 +299,52 @@ describe("表示形式の一貫性", () => {
     expect(valueOf("開始: ")).toMatch(SHOWN_WITH_DAY);
   });
 });
+
+describe("`now` を1回だけ取る（レビュー指摘）", () => {
+  /**
+   * 呼ぶたびに進む時計。**日付が変わる瞬間をまたがせる。**
+   *
+   * `stop` は `--at` の解釈と表示の両方で「今」を要る。別々に取ると、
+   * 2回目が翌日に入った場合だけ「同じ日か」の判定が**終了時刻とは違う日**を基準に
+   * 行われ、当日の記録に日付が付く。
+   */
+  function steppingDeps(moments: readonly Date[]) {
+    let calls = 0;
+
+    return {
+      store,
+      now: () => {
+        const at = moments[Math.min(calls, moments.length - 1)];
+        calls += 1;
+
+        return at ?? new Date();
+      },
+      newId: () => {
+        idCounter += 1;
+
+        return `id-${String(idCounter)}`;
+      },
+    };
+  }
+
+  it("**日付が変わる瞬間に stop しても、終了時刻に日付が付かない**", async () => {
+    await createStartCommand(deps(local(12, 23))).run(["夜業"], io);
+    out = [];
+
+    // 1回目（`--at` の解釈）は 23:59:59、2回目（表示）は日を跨いだ 00:00:01。
+    // `now` を2回取っていると、終了時刻 23:59:59 が「別日」と判定されて日付が付く
+    await createStopCommand(steppingDeps([local(12, 23, 59, 59), local(13, 0, 0, 1)])).run([], io);
+
+    expect(valueOf("終了時刻: ")).toBe("23:59:59");
+    expect(valueOf("終了時刻: ")).toMatch(SHOWN_CLOCK);
+  });
+
+  it("日を跨がなければ従来どおり", async () => {
+    await createStartCommand(deps(local(12, 9))).run(["設計"], io);
+    out = [];
+
+    await createStopCommand(steppingDeps([local(12, 10), local(12, 10, 0, 1)])).run([], io);
+
+    expect(valueOf("終了時刻: ")).toBe("10:00:00");
+  });
+});
