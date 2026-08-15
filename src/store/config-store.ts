@@ -98,7 +98,7 @@ export function createJsonConfigStore(path: string): ConfigStore {
      */
     async write(config: Config): Promise<void> {
       const { raw } = await readRaw();
-      const merged = isRecordObject(raw) ? { ...raw, ...config } : { ...config };
+      const merged = isRecordObject(raw) ? mergeKnown(raw, config) : { ...config };
 
       await mkdir(dirname(path), { recursive: true });
       // 末尾の改行を付けるのは、テキストとして扱う道具（diff・エディタ）と噛み合わせるため
@@ -109,6 +109,28 @@ export function createJsonConfigStore(path: string): ConfigStore {
 
 function isRecordObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * 既にある値の上に `Config` を重ねる。**入れ子の中でも、知らないキーを残す。**
+ *
+ * 単純な `{ ...raw, ...config }` だと、入れ子（`rounding`）は**オブジェクトごと
+ * 置き換わる**ので、その中に書かれていた知らないキーが消える。トップレベルでは
+ * 残すと決めているのに、階層が1つ深いだけで消えるのは説明できない。
+ *
+ * 重ねるのは1段だけで十分（設定キーは `<入れ物>.<葉>` の2段まで）。深さを一般化すると、
+ * 「どこまでを1つの値とみなすか」を決めなければならなくなる。
+ */
+function mergeKnown(raw: Record<string, unknown>, config: Config): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...raw };
+
+  for (const [name, value] of Object.entries(config)) {
+    const existing = raw[name];
+    merged[name] =
+      isRecordObject(existing) && isRecordObject(value) ? { ...existing, ...value } : value;
+  }
+
+  return merged;
 }
 
 /**

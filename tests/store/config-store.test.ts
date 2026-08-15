@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { DEFAULT_CONFIG } from "../../src/domain/config.js";
+import { DEFAULT_CONFIG, roundingRuleOf, withConfigValue } from "../../src/domain/config.js";
 import { createJsonConfigStore, loadEffectiveConfig } from "../../src/store/config-store.js";
 import { resolveConfigPath, resolveStorePath } from "../../src/store/store.js";
 
@@ -249,5 +249,69 @@ describe("書き込みが知らないキーを消さない（レビュー指摘�
     expect(config).toEqual(DEFAULT_CONFIG);
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain("消しません");
+  });
+});
+
+describe("入れ子のキーの書き込み（#63）", () => {
+  it("`rounding` の中の知らないキーも残す（トップレベルと同じ扱い）", async () => {
+    // 単純な `{ ...生の値, ...config }` だと `rounding` がオブジェクトごと置き換わり、
+    // 中の知らないキーが消える。階層が1つ深いだけで消えるのは説明できない
+    await writeFile(
+      path,
+      JSON.stringify({ rounding: { unitMinutes: 15, mode: "ceil", roundUp: true } }),
+      "utf8",
+    );
+
+    await createJsonConfigStore(path).write({
+      weekStartsOn: 1,
+      rounding: { unitMinutes: 30, mode: "ceil" },
+    });
+
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
+      weekStartsOn: 1,
+      rounding: { unitMinutes: 30, mode: "ceil", roundUp: true },
+    });
+  });
+
+  it("設定に `rounding` が無ければ、ファイルの `rounding` に触らない（境界）", async () => {
+    await writeFile(path, JSON.stringify({ rounding: { unitMinutes: 15 } }), "utf8");
+
+    await createJsonConfigStore(path).write({ weekStartsOn: 0 });
+
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
+      weekStartsOn: 0,
+      rounding: { unitMinutes: 15 },
+    });
+  });
+
+  it("ファイル側が入れ子でなければ、設定の値で置き換える（境界）", async () => {
+    await writeFile(path, JSON.stringify({ rounding: "15m" }), "utf8");
+
+    await createJsonConfigStore(path).write({
+      weekStartsOn: 1,
+      rounding: { unitMinutes: 15, mode: "ceil" },
+    });
+
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
+      weekStartsOn: 1,
+      rounding: { unitMinutes: 15, mode: "ceil" },
+    });
+  });
+
+  it("`config set` で書いた設定を読み直すと同じ規則になる（往復）", async () => {
+    const store = createJsonConfigStore(path);
+
+    await store.write(
+      withConfigValue(
+        withConfigValue(DEFAULT_CONFIG, "rounding.unitMinutes", "15"),
+        "rounding.mode",
+        "ceil",
+      ),
+    );
+
+    const { config, warnings } = await store.read();
+
+    expect(roundingRuleOf(config)).toEqual({ unitMinutes: 15, mode: "ceil" });
+    expect(warnings).toEqual([]);
   });
 });

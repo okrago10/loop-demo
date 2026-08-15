@@ -11,6 +11,7 @@ import {
   overrideFromEnv,
   parseConfigFile,
   parseConfigText,
+  roundingRuleOf,
   withConfigValue,
 } from "../../src/domain/config.js";
 import { DEFAULT_WEEK_STARTS_ON } from "../../src/domain/week.js";
@@ -266,5 +267,133 @@ describe("Config の形と CONFIG_KEYS が一致している", () => {
     // `rounding` は未設定＝丸めないなので、既定には現れない。
     // 現れると「設定していないのに設定ファイルへ書かれる」ことになる
     expect(Object.keys(DEFAULT_CONFIG)).toEqual(["weekStartsOn"]);
+  });
+});
+
+describe("入れ子のキーを設定ファイルから読む（#63）", () => {
+  it("`rounding` の中の値を読む", () => {
+    const { config, warnings } = parseConfigFile({ rounding: { unitMinutes: 15, mode: "ceil" } });
+
+    expect(roundingRuleOf(config)).toEqual({ unitMinutes: 15, mode: "ceil" });
+    expect(warnings).toEqual([]);
+  });
+
+  it('キーの文字列をそのまま引かない（`"rounding.unitMinutes"` は入れ子ではない）', () => {
+    // ドット付きの名前をトップレベルに書いても読まない。読むと、`config set` が書く形
+    // （入れ子）と読める形が2通りになり、どちらが効いているのか説明できなくなる
+    const { config, warnings } = parseConfigFile({
+      "rounding.unitMinutes": 15,
+      "rounding.mode": "ceil",
+    });
+
+    expect(roundingRuleOf(config)).toBeUndefined();
+    expect(warnings).toHaveLength(2);
+  });
+
+  it("片方だけの指定では丸めの規則にならない（境界）", () => {
+    expect(
+      roundingRuleOf(parseConfigFile({ rounding: { unitMinutes: 15 } }).config),
+    ).toBeUndefined();
+    expect(roundingRuleOf(parseConfigFile({ rounding: { mode: "ceil" } }).config)).toBeUndefined();
+  });
+
+  it("片方だけの指定は正しい値なら警告しない（境界）", () => {
+    expect(parseConfigFile({ rounding: { unitMinutes: 15 } }).warnings).toEqual([]);
+  });
+
+  it("空の `rounding` は既定（丸めない）で、警告も出さない（境界）", () => {
+    const { config, warnings } = parseConfigFile({ rounding: {} });
+
+    expect(roundingRuleOf(config)).toBeUndefined();
+    expect(warnings).toEqual([]);
+  });
+
+  it("丸め単位が 0 なら既定へ落として警告する（境界）", () => {
+    const { config, warnings } = parseConfigFile({ rounding: { unitMinutes: 0, mode: "ceil" } });
+
+    expect(roundingRuleOf(config)).toBeUndefined();
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("rounding.unitMinutes");
+    // 「既定値  を使います」のような空白にしない。何が起きたのか読めない
+    expect(warnings[0]).toContain("丸めません");
+  });
+
+  it("丸め単位が負・小数なら既定へ落として警告する（境界）", () => {
+    expect(parseConfigFile({ rounding: { unitMinutes: -15 } }).warnings).toHaveLength(1);
+    expect(parseConfigFile({ rounding: { unitMinutes: 7.5 } }).warnings).toHaveLength(1);
+  });
+
+  it("知らない丸め方は既定へ落として警告する", () => {
+    const { config, warnings } = parseConfigFile({ rounding: { unitMinutes: 15, mode: "round" } });
+
+    expect(roundingRuleOf(config)).toBeUndefined();
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("rounding.mode");
+  });
+
+  it("`rounding` の中の知らないキーも警告する（打ち間違いを黙って捨てない）", () => {
+    const { warnings } = parseConfigFile({ rounding: { unitMintues: 15, mode: "ceil" } });
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("rounding.unitMintues");
+  });
+
+  it("`rounding` に値を直接書いたら警告する（入れ物の位置に値）", () => {
+    const { config, warnings } = parseConfigFile({ rounding: 15 });
+
+    expect(roundingRuleOf(config)).toBeUndefined();
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("rounding");
+  });
+
+  it("`rounding` が null でも落ちない（境界）", () => {
+    expect(() => parseConfigFile({ rounding: null })).not.toThrow();
+    expect(roundingRuleOf(parseConfigFile({ rounding: null }).config)).toBeUndefined();
+  });
+
+  it("`rounding` が配列でも落ちない（境界）", () => {
+    expect(roundingRuleOf(parseConfigFile({ rounding: [15, "ceil"] }).config)).toBeUndefined();
+  });
+
+  it("他のキーが壊れていても丸めは読む（1つの誤りで全部を捨てない）", () => {
+    const { config, warnings } = parseConfigFile({
+      weekStartsOn: 9,
+      rounding: { unitMinutes: 15, mode: "ceil" },
+    });
+
+    expect(config.weekStartsOn).toBe(DEFAULT_CONFIG.weekStartsOn);
+    expect(roundingRuleOf(config)).toEqual({ unitMinutes: 15, mode: "ceil" });
+    expect(warnings).toHaveLength(1);
+  });
+
+  it("環境変数の名前は葉から決まる", () => {
+    expect(envNameOf("rounding.unitMinutes")).toBe("TOCK_ROUNDING_UNIT_MINUTES");
+    expect(envNameOf("rounding.mode")).toBe("TOCK_ROUNDING_MODE");
+  });
+
+  it("環境変数が設定ファイルの丸めより優先される", () => {
+    const base = parseConfigFile({ rounding: { unitMinutes: 60, mode: "floor" } });
+    const { config } = overrideFromEnv(base, {
+      TOCK_ROUNDING_UNIT_MINUTES: "15",
+      TOCK_ROUNDING_MODE: "ceil",
+    });
+
+    expect(roundingRuleOf(config)).toEqual({ unitMinutes: 15, mode: "ceil" });
+  });
+
+  it("環境変数で片方だけ上書きしても、もう片方はファイルの値が残る（境界）", () => {
+    const base = parseConfigFile({ rounding: { unitMinutes: 60, mode: "floor" } });
+    const { config } = overrideFromEnv(base, { TOCK_ROUNDING_MODE: "ceil" });
+
+    expect(roundingRuleOf(config)).toEqual({ unitMinutes: 60, mode: "ceil" });
+  });
+
+  it("環境変数の丸めが不正なら無視して警告する", () => {
+    const base = parseConfigFile({ rounding: { unitMinutes: 15, mode: "ceil" } });
+    const { config, warnings } = overrideFromEnv(base, { TOCK_ROUNDING_UNIT_MINUTES: "0" });
+
+    expect(roundingRuleOf(config)).toEqual({ unitMinutes: 15, mode: "ceil" });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("TOCK_ROUNDING_UNIT_MINUTES");
   });
 });

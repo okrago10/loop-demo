@@ -165,19 +165,42 @@ export function parseConfigText(key: ConfigKey, text: string): ConfigValue | und
 function withValue(config: Config, key: ConfigKey, value: ConfigValue): Config {
   switch (key) {
     case "weekStartsOn": {
-      return { ...config, weekStartsOn: value as number };
+      return { ...config, weekStartsOn: asNumber(key, value) };
     }
     case "rounding.unitMinutes": {
-      return { ...config, rounding: { ...config.rounding, unitMinutes: value as number } };
+      return { ...config, rounding: { ...config.rounding, unitMinutes: asNumber(key, value) } };
     }
     case "rounding.mode": {
-      return { ...config, rounding: { ...config.rounding, mode: value as RoundingMode } };
+      return { ...config, rounding: { ...config.rounding, mode: asRoundingMode(key, value) } };
     }
     default: {
       const unhandled: never = key;
       throw new Error(`設定キーの書き込みがありません: ${JSON.stringify(unhandled)}`);
     }
   }
+}
+
+/**
+ * 検査済みの値を、そのキーが持つ型に絞る。
+ *
+ * **キャスト（`value as number`）にしない。** `fromJson` / `parseConfigText` と
+ * `withValue` は別々の `switch` なので、キーを足したときに片方だけ型を取り違えても
+ * キャストでは気づけず、`weekStartsOn` に文字列が入ったまま集計へ流れていく。
+ */
+function asNumber(key: ConfigKey, value: ConfigValue): number {
+  if (typeof value !== "number") {
+    throw new Error(`${key} の値が数値ではありません: ${JSON.stringify(value)}`);
+  }
+
+  return value;
+}
+
+function asRoundingMode(key: ConfigKey, value: ConfigValue): RoundingMode {
+  if (!isRoundingMode(value)) {
+    throw new Error(`${key} の値が丸め方ではありません: ${JSON.stringify(value)}`);
+  }
+
+  return value;
 }
 
 /** 週の開始曜日として妥当か。判定の規則は `domain/week.ts` に一本化する。 */
@@ -264,28 +287,20 @@ export function parseConfigFile(raw: unknown): ConfigResult {
     };
   }
 
-  const warnings: string[] = [];
+  const warnings = [...unreadableWarnings(raw)];
   let config = DEFAULT_CONFIG;
 
-  for (const key of Object.keys(raw)) {
-    if (!isConfigKey(key)) {
-      warnings.push(
-        `知らない設定キーです: ${JSON.stringify(key)}（使えるキー: ${CONFIG_KEYS.join(" / ")}）。` +
-          `この版では読みませんが、設定ファイルからは消しません`,
-      );
-    }
-  }
-
   for (const key of CONFIG_KEYS) {
-    if (!Object.hasOwn(raw, key)) {
+    const found = readPath(raw, key);
+    if (!found.present) {
       continue;
     }
 
-    const value = fromJson(key, raw[key]);
+    const value = fromJson(key, found.value);
     if (value === undefined) {
       warnings.push(
-        `${key} の値が不正です: ${JSON.stringify(raw[key])}（${describeConfigKey(key)}）。` +
-          `既定値 ${formatConfigValue(DEFAULT_CONFIG, key)} を使います`,
+        `${key} の値が不正です: ${JSON.stringify(found.value)}（${describeConfigKey(key)}）。` +
+          `${describeDefault(key)}を使います`,
       );
       continue;
     }
@@ -294,6 +309,129 @@ export function parseConfigFile(raw: unknown): ConfigResult {
   }
 
   return { config, warnings };
+}
+
+/**
+ * ドット記法のキーを、入れ子の設定ファイルから引く。
+ *
+ * `rounding.unitMinutes` はファイル上では `{"rounding": {"unitMinutes": 15}}` に置かれる。
+ * **キーの文字列をそのまま `raw["rounding.unitMinutes"]` として引かない**——書いた設定が
+ * 黙って読まれないことになる。
+ */
+function readPath(
+  raw: Record<string, unknown>,
+  key: ConfigKey,
+): { present: boolean; value: unknown } {
+  let current: unknown = raw;
+
+  for (const step of key.split(".")) {
+    if (!isRecordObject(current) || !Object.hasOwn(current, step)) {
+      return { present: false, value: undefined };
+    }
+    current = current[step];
+  }
+
+  return { present: true, value: current };
+}
+
+/**
+ * ファイル上の位置が、そのまま設定キーを指しているか。
+ *
+ * **段に分けて比べる。** トップレベルに `{"rounding.unitMinutes": 15}` と書いた場合、
+ * 名前を繋げると本物のキーと同じ文字列になるが、位置は別物である
+ * （`readPath` は入れ子しか引かないので、この書き方は読まれない）。
+ */
+function isKeyAt(path: readonly string[]): boolean {
+  return CONFIG_KEYS.some((key) => sameSegments(key.split("."), path));
+}
+
+/** そのパスの下に設定キーがあるか（`rounding` のような、値ではなく入れ物の位置か）。 */
+function isBranchAt(path: readonly string[]): boolean {
+  return CONFIG_KEYS.some((key) => {
+    const segments = key.split(".");
+
+    return segments.length > path.length && sameSegments(segments.slice(0, path.length), path);
+  });
+}
+
+function sameSegments(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((segment, index) => segment === right[index]);
+}
+
+/**
+ * この版が読まないものについての警告。**読まないだけで、ファイルからは消さない。**
+ *
+ * 入れ子の中まで見るのは、`{"rounding": {"unitMintues": 15}}` のような打ち間違いを
+ * 黙って捨てないため。トップレベルだけ見ていると `rounding` は既知の名前なので通ってしまい、
+ * 「設定したのに効かない」理由が分からなくなる。
+ */
+function unreadableWarnings(
+  raw: Record<string, unknown>,
+  prefix: readonly string[] = [],
+): string[] {
+  const warnings: string[] = [];
+
+  for (const [name, value] of Object.entries(raw)) {
+    const path = [...prefix, name];
+    const shown = path.join(".");
+
+    if (isKeyAt(path)) {
+      continue;
+    }
+
+    if (isBranchAt(path)) {
+      if (isRecordObject(value)) {
+        warnings.push(...unreadableWarnings(value, path));
+      } else {
+        // `{"rounding": 15}` のように入れ物の位置に値を書いた場合。下の葉は引けない
+        warnings.push(
+          `${shown} には入れ子のオブジェクトを書いてください: ${JSON.stringify(value)}` +
+            `（例: {"${shown}": {"unitMinutes": 15, "mode": "ceil"}}）。この版では読みません`,
+        );
+      }
+      continue;
+    }
+
+    if (path.length === 1 && isConfigKey(name)) {
+      // `{"rounding.unitMinutes": 15}`。名前としては設定キーだが、ファイル上の位置が違う。
+      // これも読むと「書ける形」が2通りになり、どちらが効いているのか説明できなくなる
+      const [head, leaf] = name.split(".");
+      warnings.push(
+        `${name} は名前をそのまま書いても読みません。入れ子にしてください` +
+          `（例: {"${head ?? name}": {"${leaf ?? name}": ${JSON.stringify(value)}}}）`,
+      );
+      continue;
+    }
+
+    warnings.push(
+      `知らない設定キーです: ${JSON.stringify(shown)}（使えるキー: ${CONFIG_KEYS.join(" / ")}）。` +
+        `この版では読みませんが、設定ファイルからは消しません`,
+    );
+  }
+
+  return warnings;
+}
+
+/**
+ * 不正な値を捨てたときに、代わりに何を使うかを示す文言。
+ *
+ * **未設定を既定とするキーは、空文字を見せない。**「既定値  を使います」では何が起きたのか
+ * 読めない。丸めは書かなければ丸めないので、そのことをそのまま書く。
+ */
+function describeDefault(key: ConfigKey): string {
+  switch (key) {
+    case "weekStartsOn": {
+      return `既定値 ${formatConfigValue(DEFAULT_CONFIG, key)}`;
+    }
+    case "rounding.unitMinutes":
+    case "rounding.mode": {
+      return "既定（丸めません）";
+    }
+    default: {
+      const unhandled: never = key;
+      throw new Error(`既定値の説明がありません: ${JSON.stringify(unhandled)}`);
+    }
+  }
 }
 
 /**

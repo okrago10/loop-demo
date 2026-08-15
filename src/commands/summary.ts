@@ -1,9 +1,11 @@
 import { type CliIo, type Command, UserError } from "../cli.js";
+import { roundingRuleOf } from "../domain/config.js";
 import { dayPeriodOf, formatDay, parseDayPeriod } from "../domain/day.js";
 import type { Period } from "../domain/period.js";
 import { summarize } from "../domain/summary.js";
 import { formatSummaryLines } from "../format/summary.js";
 import type { CommandUsage } from "../format/help.js";
+import type { LoadConfig } from "../store/config-store.js";
 import { type CommandDeps, rejectUnknownArgs, takeOption } from "./args.js";
 
 /** `tock summary` の使い方。 */
@@ -23,8 +25,11 @@ const TODAY_USAGE: CommandUsage = {
  *
  * `--day` を省略した場合は今日。`today` は `summary` の `--day` なしと同じ結果を返す
  * （毎日使う操作なので、短い名前を用意する）。
+ *
+ * **表示する時間の丸めは設定から来る（#63）。** 設定を書いていなければ丸めない。
+ * 丸めるかどうかは表示の判断なので、集計（`domain/summary.ts`）にも記録にも触れない。
  */
-export function createSummaryCommand(deps: CommandDeps): Command {
+export function createSummaryCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
     name: "summary",
     summary: "指定した日のタグ別合計を表示する",
@@ -34,13 +39,13 @@ export function createSummaryCommand(deps: CommandDeps): Command {
       const { value: day, rest } = takeOption(argv, "--day");
       rejectUnknownArgs(rest, { command: "summary", usage: SUMMARY_USAGE });
 
-      await report(deps, io, resolvePeriod(day, deps.now()));
+      await report(deps, loadConfig, io, resolvePeriod(day, deps.now()));
     },
   };
 }
 
 /** 今日のタグ別合計を表示する。`summary` の別名。 */
-export function createTodayCommand(deps: CommandDeps): Command {
+export function createTodayCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
     name: "today",
     summary: "今日のタグ別合計を表示する",
@@ -49,7 +54,7 @@ export function createTodayCommand(deps: CommandDeps): Command {
     async run(argv: readonly string[], io: CliIo): Promise<void> {
       rejectUnknownArgs(argv, { command: "today", usage: TODAY_USAGE });
 
-      await report(deps, io, dayPeriodOf(deps.now()));
+      await report(deps, loadConfig, io, dayPeriodOf(deps.now()));
     },
   };
 }
@@ -60,12 +65,24 @@ export function createTodayCommand(deps: CommandDeps): Command {
  * 読み出す範囲を対象日そのものにしているのは、`listByRange` が範囲に重なるエントリを
  * （日跨ぎ・実行中のものも含めて）返すため。切り出しと打ち切りは `summarize` が行う。
  */
-async function report(deps: CommandDeps, io: CliIo, period: Period): Promise<void> {
+async function report(
+  deps: CommandDeps,
+  loadConfig: LoadConfig,
+  io: CliIo,
+  period: Period,
+): Promise<void> {
+  // 設定の警告は集計より先に出す。表を読んだあとに「その値は無視した」と言われても、
+  // どの数字が影響を受けたのかを読み直すことになる（`week` と同じ順）
+  const { config, warnings } = await loadConfig();
+  for (const warning of warnings) {
+    io.err(warning);
+  }
+
   const now = deps.now();
   const entries = await deps.store.listByRange(period);
   const summary = summarize(entries, period, now);
 
-  for (const line of formatSummaryLines(formatDay(period.start), summary)) {
+  for (const line of formatSummaryLines(formatDay(period.start), summary, roundingRuleOf(config))) {
     io.out(line);
   }
 }
