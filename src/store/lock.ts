@@ -51,6 +51,24 @@ export const DEFAULT_LOCK_OPTIONS: LockOptions = {
   retryMs: 50,
 };
 
+/**
+ * 待ってもロックが取れなかった。
+ *
+ * **利用者に見せて意味のあるエラー**（別の端末で tock が動いている、あるいは異常終了で
+ * ロックが残っている）なので、想定外の例外と区別できる型にする。区別できないと
+ * 「tock の不具合」を表す終了コード 2 で終わり、スクリプトから見て内部エラーと同じになる。
+ *
+ * **`UserError` を使わないのは、依存が循環するため。** `UserError` は `cli.ts` にあり、
+ * その `cli.ts` は `store/jsonl-store.ts` を import している（`src/cli.ts` の import 節）。
+ * 逆向きに参照させず、`cli.ts` 側でこの型を見て終了コードを決める。
+ */
+export class LockTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LockTimeoutError";
+  }
+}
+
 function isAlreadyExists(error: unknown): boolean {
   return (
     typeof error === "object" && error !== null && (error as { code?: unknown }).code === "EEXIST"
@@ -132,7 +150,7 @@ export async function withLock<T>(
     }
 
     if (options.now() - startedAt >= options.timeoutMs) {
-      throw new Error(
+      throw new LockTimeoutError(
         `他の tock が書き込み中のため、${String(options.timeoutMs)}ms 待っても始められませんでした: ` +
           `${lockPath}。実行中の tock が無ければ、このファイルを消してください`,
       );

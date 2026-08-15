@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
@@ -291,19 +292,37 @@ export function createJsonlStore(
   const lockPath = `${filePath}.lock`;
 
   /**
-   * 読んでから書くまでを、まとめて排他する（#11）。
+   * いま自分がロックを握っているか。
    *
-   * **読みと書きを別々にロックしても意味がない。** 壊れるのは「実行中は無い」と読んでから
-   * 書くまでの間で、そこに他のプロセスが割り込むと実行中エントリが2つできる。
+   * **入れ子を検出するために非同期の文脈で持つ。** 単なる真偽値だと、同じプロセスの
+   * 別の呼び出し（並行して走る `transaction`）まで「握っている」と誤判定し、
+   * 排他をすり抜ける。`AsyncLocalStorage` なら `run` で作った文脈の中だけで見える。
    */
-  const exclusively = async (write: (state: Map<string, Entry>) => Promise<void>): Promise<void> =>
-    withLock(lockPath, lock, async () => {
+  const holding = new AsyncLocalStorage<true>();
+
+  /**
+   * ロックの中で処理を走らせる。**既に握っていれば取り直さない。**
+   *
+   * 取り直すと、自分が握っているロックを自分で待つことになって進めなくなる。
+   */
+  const exclusively = <T>(action: () => Promise<T>): Promise<T> =>
+    holding.getStore() === true
+      ? action()
+      : withLock(lockPath, lock, () => holding.run(true, action));
+
+  /** 読み出してから書くまでを1つにする。個々の書き込み操作が使う。 */
+  const writing = async (write: (state: Map<string, Entry>) => Promise<void>): Promise<void> =>
+    exclusively(async () => {
       await write(await readState(filePath));
     });
 
   return {
+    async transaction<T>(action: () => Promise<T>): Promise<T> {
+      return exclusively(action);
+    },
+
     async append(entry: Entry): Promise<void> {
-      await exclusively(async (state) => {
+      await writing(async (state) => {
         if (state.has(entry.id)) {
           throw new Error(`同じ id のエントリが既にあります: ${entry.id}`);
         }
@@ -313,7 +332,7 @@ export function createJsonlStore(
     },
 
     async update(entry: Entry): Promise<void> {
-      await exclusively(async (state) => {
+      await writing(async (state) => {
         if (!state.has(entry.id)) {
           throw new Error(`更新対象のエントリが見つかりません: ${entry.id}`);
         }
@@ -323,7 +342,7 @@ export function createJsonlStore(
     },
 
     async delete(id: string): Promise<void> {
-      await exclusively(async (state) => {
+      await writing(async (state) => {
         if (!state.has(id)) {
           throw new Error(`削除対象のエントリが見つかりません: ${id}`);
         }

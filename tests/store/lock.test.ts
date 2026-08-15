@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { DEFAULT_LOCK_OPTIONS, type LockOptions, withLock } from "../../src/store/lock.js";
+import {
+  DEFAULT_LOCK_OPTIONS,
+  LockTimeoutError,
+  type LockOptions,
+  withLock,
+} from "../../src/store/lock.js";
 
 /**
  * 書き込みの排他（#11）。
@@ -149,6 +154,17 @@ describe("待っても取れなければタイムアウトする（DoD）", () =
 
     await expect(withLock(lockPath, options, () => Promise.resolve())).rejects.toThrow(
       /他の tock が書き込み中/,
+    );
+  });
+
+  it("**想定外の例外と区別できる型で失敗する**", async () => {
+    // 区別できないと、CLI は「tock の不具合」を表す終了コード 2 で終わる。
+    // 別の端末が動いているのは利用者が直せる状態なので、そこと同じ扱いにしない
+    const { options } = controllable({ timeoutMs: 100, staleMs: 10_000 });
+    await held();
+
+    await expect(withLock(lockPath, options, () => Promise.resolve())).rejects.toBeInstanceOf(
+      LockTimeoutError,
     );
   });
 

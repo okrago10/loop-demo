@@ -34,18 +34,25 @@ export function createSwitchCommand(deps: CommandDeps): Command {
       rejectUnknownArgs(rest, { command: "switch", usage: USAGE });
       const { tags, note } = parseDescription(rest.join(" "));
 
-      const running = await deps.store.findRunning();
-
-      // **書き込む前に、失敗しうる組み立てをすべて済ませる。**
-      // 途中で弾かれると「前を止めただけで新規開始されない」中途半端な状態が残るため、
-      // 検証は保存の前に寄せる
       const next = createEntry(
         { start: at, tags, ...(note === undefined ? {} : { note }) },
         { newId: deps.newId },
       );
-      const stopped = running === undefined ? undefined : stopAt(running, at);
 
-      await save(deps, running, stopped, next);
+      // **判断と2つの書き込みを1つの操作にする（#11）。** 別々にすると、停止と開始の間に
+      // 他のプロセスが割り込み、実行中エントリが2つできる
+      const stopped = await deps.store.transaction(async () => {
+        const running = await deps.store.findRunning();
+
+        // **書き込む前に、失敗しうる組み立てをすべて済ませる。**
+        // 途中で弾かれると「前を止めただけで新規開始されない」中途半端な状態が残るため、
+        // 検証は保存の前に寄せる
+        const closing = running === undefined ? undefined : stopAt(running, at);
+
+        await save(deps, running, closing, next);
+
+        return closing;
+      });
 
       if (stopped !== undefined) {
         io.out(`停止しました: ${formatDuration(durationMs(stopped))}`);
@@ -59,15 +66,16 @@ export function createSwitchCommand(deps: CommandDeps): Command {
 /**
  * 確定と追記を行う。追記に失敗したら、確定を巻き戻す。
  *
- * ストアに複数の書き込みをまとめる手段が無いため（追記のみの JSONL）、片方だけ成功した
- * 状態がありえる。順序と巻き戻しでそれを詰める。
+ * **呼び出し側が `transaction` で囲むので、他のプロセスから途中の状態は見えない**（#11）。
+ * ただし追記のみの JSONL なので、**この間に落ちれば片方だけ書かれた状態がファイルに残る。**
+ * 順序と巻き戻しでそれを詰める。
  *
  * - 確定を先にするのは、追記を先にすると失敗時に**実行中が2件**残るため。
  *   どちらを止めるべきか決められない状態になり、0件より不都合が大きい
  * - 追記が落ちた場合は元の実行中エントリを書き戻し、切り替えを試す前の状態に戻す
  *
- * 巻き戻し自体が失敗する可能性は残る。書き込みを1回にまとめる話は #11（ファイルロック）や
- * #40（ストアの整理）の範囲なので、ここでは扱わない。
+ * 巻き戻し自体が失敗する可能性は残る。**2つの追記を1行にまとめて、落ちても中間状態を
+ * 作らないようにする話は、この Issue の範囲外**（#11 で入れたのは排他であって原子性ではない）。
  */
 async function save(
   deps: CommandDeps,
@@ -98,7 +106,7 @@ async function save(
  *
  * この状態は DoD が避けたい形（前の作業は停止済み・新しい作業は無し）そのままなので、
  * **今どうなっているかと、どう戻すか**もメッセージに入れる。書き込みを1回にまとめて
- * この状態自体を作らない話は #11（ファイルロック）や #40（ストアの整理）の範囲。
+ * この状態自体を作らない話は、排他（#11）とは別で、まだ扱っていない。
  */
 async function rollback(deps: CommandDeps, running: Entry, cause: unknown): Promise<void> {
   try {
