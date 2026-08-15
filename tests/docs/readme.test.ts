@@ -505,7 +505,7 @@ describe("実装されていない機能が書かれていない（DoD）", () =
 
   it("`src/cli.ts` が組み立てるコマンドと、このテストが組み立てるコマンドが一致する", async () => {
     const source = await readFile(join(ROOT, "src", "cli.ts"), "utf8");
-    const from = source.indexOf("function buildCommands(");
+    const from = source.indexOf("function buildRuntime(");
     expect(from).toBeGreaterThan(-1);
 
     const listStart = source.indexOf("return [", from);

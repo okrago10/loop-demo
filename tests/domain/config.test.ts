@@ -258,7 +258,11 @@ describe("Config の形と CONFIG_KEYS が一致している", () => {
   // `rounding.unitMinutes` と `rounding.mode` はファイル上では1つの `rounding` に入る
   it("Config のフィールドはすべて CONFIG_KEYS のトップレベルに対応する", () => {
     const topLevel = new Set(CONFIG_KEYS.map((key) => key.split(".")[0]));
-    const populated: Config = { weekStartsOn: 1, rounding: { unitMinutes: 15, mode: "ceil" } };
+    const populated: Config = {
+      weekStartsOn: 1,
+      rounding: { unitMinutes: 15, mode: "ceil" },
+      maxRunningHours: 8,
+    };
 
     expect(Object.keys(populated).toSorted()).toEqual([...topLevel].toSorted());
   });
