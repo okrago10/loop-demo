@@ -140,7 +140,36 @@ describe("旧形式のレコードを最新形として読める（DoD）", () =
 });
 
 describe("知らない新しいバージョンは明示的なエラーになる（DoD）", () => {
-  const future = { v: SCHEMA_VERSION + 1, op: "append", id: "future", entry: { unknown: true } };
+  /**
+   * **v1 としても読める行にする**（レビューで指摘）。
+   *
+   * `entry` が v1 の形として壊れていると、門が無くても `asEntry` が落とすので、
+   * **門が効いているのか形の検査が落としたのかを区別できない。** 実際、門を
+   * 「読めなかったときだけ通る」位置に動かしても、差し替え前は21件すべて通った。
+   *
+   * 次の版でいちばん起きやすい変更は**既存フィールドはそのまま、任意フィールドを足す**
+   * ことで、それは v1 としても読める（`asEntry` は知らないフィールドを無視する）。
+   * その形で見れば、門を後ろに置いた実装は落ちる。
+   */
+  const future = {
+    v: SCHEMA_VERSION + 1,
+    op: "append",
+    entry: {
+      id: "future",
+      start: "2026-08-04T09:00:00.000Z",
+      tags: ["work"],
+      newField: "次の版が足したもの",
+    },
+  };
+
+  it("この fixture は v1 としても読める（この describe が門を見ていることの前提）", async () => {
+    // バージョンだけを外して書くと読める。つまり以降のテストが落ちる理由は
+    // **バージョンだけ**であって、形の検査ではない
+    const { v: _version, ...withoutVersion } = future;
+    await writeLegacy(withoutVersion);
+
+    await expect(store.listAll()).resolves.toHaveLength(1);
+  });
 
   it("読み出しがエラーになる（黙って飛ばさない）", async () => {
     await writeLegacy(future);
