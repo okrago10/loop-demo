@@ -61,53 +61,19 @@ const allTime = {
   end: new Date("2100-01-01T00:00:00Z"),
 };
 
-/** 追記だけが必ず失敗するストア。書き込みが途中で落ちた状況を作る。 */
-function storeWithFailingAppend(base: Store): Store {
-  return {
-    transaction: <T>(action: () => Promise<T>) => action(),
-    append: () => Promise.reject(new Error("書き込みに失敗しました")),
-    update: (entry) => base.update(entry),
-    delete: (id) => base.delete(id),
-    listAll: () => base.listAll(),
-    listByRange: (range) => base.listByRange(range),
-    findRunning: () => base.findRunning(),
-  };
-}
-
 /**
- * 追記が失敗し、そのあとの巻き戻しも失敗するストア。
+ * 切り替えの書き込みだけが必ず失敗するストア（#88 で1回の追記になった）。
  *
- * 確定（`stopped` の update。`end` を持つ）は通し、**巻き戻し（`running` の update。
- * `end` を持たない）だけを落とす。** 追記側の失敗が巻き戻しの例外に上書きされて
- * 消えないことを確かめるために使う。
+ * 以前は「追記だけ落とす」「確定だけ落とす」「巻き戻しだけ落とす」の3種類が要った——
+ * 書き込みが2回あり、どこで落ちるかによって残る状態が違ったため。**1回の追記に
+ * なったので、落ち方は「書けない」の1つしかない。** 巻き戻しも順序の議論も消えた。
  */
-function storeWithFailingAppendAndRollback(base: Store): Store {
-  return {
-    transaction: <T>(action: () => Promise<T>) => action(),
-    append: () => Promise.reject(new Error("追記が失敗しました")),
-    update: (entry) =>
-      entry.end === undefined
-        ? Promise.reject(new Error("巻き戻しが失敗しました"))
-        : base.update(entry),
-    delete: (id) => base.delete(id),
-    listAll: () => base.listAll(),
-    listByRange: (range) => base.listByRange(range),
-    findRunning: () => base.findRunning(),
-  };
-}
-
-/**
- * 確定（update）だけが必ず失敗するストア。
- *
- * 「追記を先にして確定を後にする」実装だと、追記が通ってから確定が落ちるため
- * **実行中が2件**残る。どちらを止めるべきか決められない状態になるので、
- * 順序が逆になっていないことをこのストアで確かめる。
- */
-function storeWithFailingUpdate(base: Store): Store {
+function storeWithFailingSwitch(base: Store): Store {
   return {
     transaction: <T>(action: () => Promise<T>) => action(),
     append: (entry) => base.append(entry),
-    update: () => Promise.reject(new Error("確定の書き込みに失敗しました")),
+    update: (entry) => base.update(entry),
+    stopAndStart: () => Promise.reject(new Error("書き込みに失敗しました")),
     delete: (id) => base.delete(id),
     listAll: () => base.listAll(),
     listByRange: (range) => base.listByRange(range),
@@ -238,12 +204,18 @@ describe("switch（実行中がないとき）", () => {
   });
 });
 
-describe("switch（途中で失敗しても中途半端な状態を残さない）", () => {
-  it("新規の追記が失敗したら、前のエントリは実行中のまま戻る", async () => {
+describe("switch（途中で失敗しても中途半端な状態を残さない・#88 で1回の追記に）", () => {
+  // 以前ここには「追記だけ失敗」「確定だけ失敗」「巻き戻しも失敗」の3系統のテストがあった。
+  // 書き込みが update + append の2回に分かれていて、どこで落ちるかで残る状態が違った
+  // ためである。**#88 で切り替えは1回の追記になり、失敗の形は「書けない」の1つだけに
+  // なった。** 巻き戻し（rollback）のコードも消えたので、その失敗系も存在しない。
+  // これがこの describe が3系統から1系統に減った理由で、DoD の「巻き戻しが不要に
+  // なっていることをテストで示す」に当たる
+  it("**書き込みが失敗したら、前のエントリは実行中のまま戻る**", async () => {
     await startAt9();
 
     await expect(
-      createSwitchCommand(deps(local(10, 30), storeWithFailingAppend(store))).run(["次の作業"], io),
+      createSwitchCommand(deps(local(10, 30), storeWithFailingSwitch(store))).run(["次の作業"], io),
     ).rejects.toThrow();
 
     // 「前を止めただけで新規開始されない」状態になっていないこと
@@ -254,39 +226,35 @@ describe("switch（途中で失敗しても中途半端な状態を残さない�
     expect(running).not.toHaveProperty("end");
   });
 
-  it("新規の追記が失敗したら、エントリは1件のまま", async () => {
+  it("書き込みが失敗したら、エントリは1件のまま", async () => {
     await startAt9();
 
     await Promise.resolve(
-      createSwitchCommand(deps(local(10, 30), storeWithFailingAppend(store))).run(["次の作業"], io),
+      createSwitchCommand(deps(local(10, 30), storeWithFailingSwitch(store))).run(["次の作業"], io),
     ).catch(() => undefined);
 
     expect(await store.listByRange(allTime)).toHaveLength(1);
   });
 
-  it("確定の書き込みが失敗しても、実行中が2件になることはない", async () => {
+  it("書き込みが失敗しても、実行中が2件になることはない", async () => {
     await startAt9();
 
     await expect(
-      createSwitchCommand(deps(local(10, 30), storeWithFailingUpdate(store))).run(["次の作業"], io),
+      createSwitchCommand(deps(local(10, 30), storeWithFailingSwitch(store))).run(["次の作業"], io),
     ).rejects.toThrow();
 
-    // 追記を先にすると「新規が追記済み・前が未確定」で実行中が2件残り、
-    // どちらを止めるべきか決められなくなる
     const running = (await store.listByRange(allTime)).filter((entry) => entry.end === undefined);
 
     expect(running).toHaveLength(1);
     expect(running[0]?.note).toBe("前の作業");
   });
 
-  it("確定の書き込みが失敗したら、新しいエントリは作られない", async () => {
+  it("利用者起因ではない書き込みの失敗は UserError にしない（終了コード 2 のまま）", async () => {
     await startAt9();
 
-    await Promise.resolve(
-      createSwitchCommand(deps(local(10, 30), storeWithFailingUpdate(store))).run(["次の作業"], io),
-    ).catch(() => undefined);
-
-    expect(await store.listByRange(allTime)).toHaveLength(1);
+    await expect(
+      createSwitchCommand(deps(local(10, 30), storeWithFailingSwitch(store))).run(["次の作業"], io),
+    ).rejects.not.toThrow(UserError);
   });
 
   it("--at が前の開始より前なら UserError で、記録は何も変わらない", async () => {
@@ -394,38 +362,6 @@ describe("switch を続けて使う", () => {
   });
 });
 
-// 巻き戻しの失敗で追記側の失敗が消えると、本当の原因が追えなくなる
-describe("switch は巻き戻しにも失敗したとき、両方の原因を伝える", () => {
-  it("追記の失敗と巻き戻しの失敗の両方がメッセージに載る", async () => {
-    await createStartCommand(deps(local(9, 0), store)).run(["1本目 #work"], io);
-
-    await expect(
-      createSwitchCommand(deps(local(10, 30), storeWithFailingAppendAndRollback(store))).run(
-        ["次の作業"],
-        io,
-      ),
-    ).rejects.toThrow(/追記が失敗しました[\s\S]*巻き戻しが失敗しました/);
-  });
-
-  it("いま何が起きているかと復帰方法を伝える", async () => {
-    await createStartCommand(deps(local(9, 0), store)).run(["1本目 #work"], io);
-
-    await expect(
-      createSwitchCommand(deps(local(10, 30), storeWithFailingAppendAndRollback(store))).run(
-        ["次の作業"],
-        io,
-      ),
-    ).rejects.toThrow(/tock start/);
-  });
-
-  it("利用者起因ではないので UserError にしない（終了コード 2 のまま）", async () => {
-    await createStartCommand(deps(local(9, 0), store)).run(["1本目 #work"], io);
-
-    await expect(
-      createSwitchCommand(deps(local(10, 30), storeWithFailingAppendAndRollback(store))).run(
-        ["次の作業"],
-        io,
-      ),
-    ).rejects.not.toThrow(UserError);
-  });
-});
+// 「巻き戻しにも失敗したとき両方の原因を伝える」describe（3件）はここにあったが、
+// #88 で巻き戻しという機構そのものが消えたため、検証対象が存在しなくなった。
+// 失敗時に UserError にしないことだけは上の describe に引き継いでいる
