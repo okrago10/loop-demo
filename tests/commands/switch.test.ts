@@ -67,6 +67,7 @@ function storeWithFailingAppend(base: Store): Store {
     append: () => Promise.reject(new Error("書き込みに失敗しました")),
     update: (entry) => base.update(entry),
     delete: (id) => base.delete(id),
+    listAll: () => base.listAll(),
     listByRange: (range) => base.listByRange(range),
     findRunning: () => base.findRunning(),
   };
@@ -87,6 +88,7 @@ function storeWithFailingAppendAndRollback(base: Store): Store {
         ? Promise.reject(new Error("巻き戻しが失敗しました"))
         : base.update(entry),
     delete: (id) => base.delete(id),
+    listAll: () => base.listAll(),
     listByRange: (range) => base.listByRange(range),
     findRunning: () => base.findRunning(),
   };
@@ -104,6 +106,7 @@ function storeWithFailingUpdate(base: Store): Store {
     append: (entry) => base.append(entry),
     update: () => Promise.reject(new Error("確定の書き込みに失敗しました")),
     delete: (id) => base.delete(id),
+    listAll: () => base.listAll(),
     listByRange: (range) => base.listByRange(range),
     findRunning: () => base.findRunning(),
   };

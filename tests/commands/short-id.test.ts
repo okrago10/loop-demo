@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { UserError } from "../../src/cli.js";
 import { createEditCommand } from "../../src/commands/edit.js";
-import { listAllEntries } from "../../src/commands/lookup.js";
 import { createLogCommand } from "../../src/commands/log.js";
 import { createRmCommand } from "../../src/commands/rm.js";
 import { DEFAULT_CONFIG } from "../../src/domain/config.js";
@@ -228,7 +227,7 @@ describe("曖昧な指定を取り違えない（DoD）", () => {
         createEditCommand(deps(NOW)).run([LOWER, "--note", "直したい"], io),
       ).rejects.toThrow(UserError);
 
-      const entries = await listAllEntries(store);
+      const entries = await store.listAll();
       expect(entries.map((entry) => entry.note)).toEqual(["大文字の記録", "小文字の記録"]);
     });
 

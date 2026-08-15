@@ -6,7 +6,7 @@ import { normalizeTag } from "../domain/tag.js";
 import { type CommandDeps, rejectUnknownArgs, resolveClockTimeOn, takeOption } from "./args.js";
 import { shortenId, shortIdLength } from "../domain/entry-id.js";
 import type { CommandUsage } from "../format/help.js";
-import { listAllEntries, resolveEntry } from "./lookup.js";
+import { resolveEntry } from "./lookup.js";
 
 /**
  * 記録を修正する。
@@ -62,7 +62,7 @@ export function createEditCommand(deps: CommandDeps): Command {
         );
       }
 
-      const entries = await listAllEntries(deps.store);
+      const entries = await deps.store.listAll();
       const target = resolveEntry(entries, id);
 
       const now = deps.now();
