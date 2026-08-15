@@ -52,6 +52,16 @@ async function writeLegacy(...records: readonly unknown[]): Promise<void> {
   await writeFile(file, records.map((record) => JSON.stringify(record)).join("\n") + "\n", "utf8");
 }
 
+/**
+ * 知らないバージョンに出会ったときの、利用者向けメッセージ。
+ *
+ * **`/バージョン/` のような緩い一致では見ない。** `migrate` の内部エラー
+ * （`移行の手順がありません: バージョン 2`）にも当たってしまい、**バージョンの門を
+ * 素通しにしても6件が通ってしまった**（mutation test で判明）。門が効いていることを
+ * 見たいので、門が出す文面そのものに寄せる。
+ */
+const UNSUPPORTED = new RegExp(`保存形式のバージョン ${String(SCHEMA_VERSION + 1)} は読めません`);
+
 async function lines(): Promise<Record<string, unknown>[]> {
   const raw = await readFile(file, "utf8");
 
@@ -135,7 +145,7 @@ describe("知らない新しいバージョンは明示的なエラーになる�
   it("読み出しがエラーになる（黙って飛ばさない）", async () => {
     await writeLegacy(future);
 
-    await expect(store.listAll()).rejects.toThrow(/バージョン/);
+    await expect(store.listAll()).rejects.toThrow(UNSUPPORTED);
   });
 
   it("エラーに読めなかったバージョンと、いまの版が読める上限が出る", async () => {
@@ -152,13 +162,13 @@ describe("知らない新しいバージョンは明示的なエラーになる�
 
     await expect(
       store.listByRange({ start: new Date("2026-08-01"), end: new Date("2026-08-31") }),
-    ).rejects.toThrow(/バージョン/);
+    ).rejects.toThrow(UNSUPPORTED);
   });
 
   it("実行中の検索でもエラーになる", async () => {
     await writeLegacy(future);
 
-    await expect(store.findRunning()).rejects.toThrow(/バージョン/);
+    await expect(store.findRunning()).rejects.toThrow(UNSUPPORTED);
   });
 
   it("**書き込もうとしてもファイルを壊さない**", async () => {
@@ -167,7 +177,7 @@ describe("知らない新しいバージョンは明示的なエラーになる�
     await writeLegacy(future);
     const before = await readFile(file, "utf8");
 
-    await expect(store.append(entry("2026-08-05T09:00:00Z"))).rejects.toThrow(/バージョン/);
+    await expect(store.append(entry("2026-08-05T09:00:00Z"))).rejects.toThrow(UNSUPPORTED);
 
     await expect(readFile(file, "utf8")).resolves.toBe(before);
   });
@@ -176,8 +186,8 @@ describe("知らない新しいバージョンは明示的なエラーになる�
     await writeLegacy(future);
     const before = await readFile(file, "utf8");
 
-    await expect(store.update(entry("2026-08-05T09:00:00Z"))).rejects.toThrow(/バージョン/);
-    await expect(store.delete("future")).rejects.toThrow(/バージョン/);
+    await expect(store.update(entry("2026-08-05T09:00:00Z"))).rejects.toThrow(UNSUPPORTED);
+    await expect(store.delete("future")).rejects.toThrow(UNSUPPORTED);
 
     await expect(readFile(file, "utf8")).resolves.toBe(before);
   });
@@ -186,7 +196,7 @@ describe("知らない新しいバージョンは明示的なエラーになる�
     // 「読めたぶんだけ返す」にすると、欠けたことに気づかないまま集計が出る
     await writeLegacy({ op: "append", entry: entry("2026-08-01T09:00:00Z") }, future);
 
-    await expect(store.listAll()).rejects.toThrow(/バージョン/);
+    await expect(store.listAll()).rejects.toThrow(UNSUPPORTED);
   });
 });
 
