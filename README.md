@@ -371,7 +371,7 @@ $ echo $?
 
 | オプション | 意味 |
 | --- | --- |
-| `--format csv\|json` | 書き出す形式（必須） |
+| `--format csv\|json` | 書き出す形式（設定 `defaultFormat` がなければ必須） |
 | `--period 期間` | 期間で絞る（省略すると全期間） |
 
 ```console
@@ -385,6 +385,21 @@ c01fa0f5-cbe6-470a-8550-ccf8caa4438d,2026-08-12T09:00:00.000Z,2026-08-12T10:30:0
 ```
 
 CSV は完全な id（短縮していないもの）を出す。実行中の記録は `end` と `duration_min` が空欄になる。
+
+設定に `defaultFormat` を書いておくと `--format` を省ける。書いていなければ省けない
+（形式を選んでいない状態で書き出すと、できたファイルが csv か json か分からなくなる）。
+
+```console
+$ tock config set defaultFormat csv
+設定しました: defaultFormat=csv
+$ tock start "設計 #work/tock" --at 09:00
+開始しました: 設計 [#work/tock]
+$ tock stop --at 10:30
+停止しました: 1h 30m
+$ tock export
+id,start,end,duration_min,tags,note
+c01fa0f5-cbe6-470a-8550-ccf8caa4438d,2026-08-12T09:00:00.000Z,2026-08-12T10:30:00.000Z,90,work/tock,設計
+```
 
 JSON は記録の配列として出る。
 
@@ -417,6 +432,7 @@ weekStartsOn=1
 rounding.unitMinutes=
 rounding.mode=
 maxRunningHours=8
+defaultFormat=
 $ tock config set weekStartsOn 0
 設定しました: weekStartsOn=0
 ~/.tock/config.json
@@ -490,6 +506,7 @@ c01fa0f5  2026-08-12  09:00-10:30  1h 30m  設計 #work/tock
 | `rounding.unitMinutes` | 1以上の整数（分） | 未設定（丸めない） |
 | `rounding.mode` | `ceil` / `floor` / `nearest` | 未設定（丸めない） |
 | `maxRunningHours` | 1以上の整数（時間） | 8 |
+| `defaultFormat` | `csv` / `json` | 未設定（`tock export` に `--format` が必要） |
 
 設定は次の優先順位で決まる。**左が強い。**
 
