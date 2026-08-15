@@ -133,6 +133,9 @@ async function exists(path: string): Promise<boolean> {
  */
 const built = await exists(CLI);
 
+/** `/dev/full` があるか（Linux のみ）。`EPIPE` 以外の書き込みエラーを起こすのに使う。 */
+const hasDevFull = await exists("/dev/full");
+
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "tock-e2e-data-"));
   home = await mkdtemp(join(tmpdir(), "tock-e2e-home-"));
@@ -343,6 +346,152 @@ describe("npm run check と CI に含まれている（DoD）", () => {
 
     expect(workflow).toContain("npm run check");
   });
+});
+
+/**
+ * 出力を途中で打ち切られたときの振る舞い（#49）。
+ *
+ * **本物のパイプを閉じる経路をここで通す。** `tests/cli-epipe.test.ts` は偽のストリームで
+ * `EPIPE` を必ず起こして振る舞いを固定しているが、「実際に `| head -3` して出るか」は
+ * 本物の子プロセスでしか確かめられない。
+ *
+ * `sh -c` を使うのは、**読み手が先に終わる**状況を作るため。`node` の終了コードは
+ * パイプラインの外からは見えない（`| head` の終了コードになる）ので、`echo $?` で
+ * stderr に混ぜて観測する。**stderr はパイプに混ぜない**——混ぜると `head` に切られて
+ * エラー自体が見えなくなる（#49 の備考に書かれている落とし穴）。
+ */
+/**
+ * **ここは本物の経路のスモークで、`EPIPE` を必ず起こす検証は
+ * `tests/cli-epipe.test.ts`（偽ストリーム）が持つ。**
+ *
+ * `--help` の出力はパイプバッファに収まるので、「書き切ったあとに読み手が閉じる」経路に
+ * なることがあり、その場合 `EPIPE` は起きない。つまりここが green でも
+ * 「起きなかったから通った」なのか「飲めたから通った」なのかは区別できない（レビューで指摘）。
+ * 振る舞いの固定は偽ストリーム側に置き、ここでは**利用者と同じ起動でスタックトレースが
+ * 出ないこと**だけを見る。
+ */
+describe.skipIf(!built)("出力を head で打ち切っても壊れない（DoD・スモーク）", () => {
+  /** `node <CLI> <args> | head -<lines>` を走らせ、node 自身の終了コードを stderr で観測する。 */
+  function piped(args: readonly string[], lines: number) {
+    const inner = ["node", CLI, ...args].map((part) => `'${part}'`).join(" ");
+
+    return execute(
+      "sh",
+      ["-c", `{ ${inner}; echo "node exit: $?" >&2; } | head -${String(lines)}`],
+      { PATH: process.env["PATH"], TOCK_DIR: dir, HOME: home },
+    );
+  }
+
+  it(
+    "スタックトレースを出さない",
+    async () => {
+      const result = await piped(["--help"], 3);
+
+      // 修正前はここに Error: write EPIPE と Node のスタックが出ていた
+      expect(result.stderr).not.toContain("EPIPE");
+      expect(result.stderr).not.toContain("Unhandled");
+      expect(result.stderr).not.toContain("node:internal");
+      expect(result.stderr).not.toContain("Node.js v");
+    },
+    RUN_TIMEOUT_MS,
+  );
+
+  it(
+    "異常終了しない（uncaughtException で落ちない）",
+    async () => {
+      const result = await piped(["--help"], 3);
+
+      // 未処理の error イベントで落ちると node は 1 で終わる
+      expect(result.stderr).toContain("node exit: 0");
+    },
+    RUN_TIMEOUT_MS,
+  );
+
+  it(
+    "打ち切られるまでの行は出ている（黙って何も出さない直し方をしていない）",
+    async () => {
+      const result = await piped(["--help"], 3);
+
+      expect(result.stdout).toContain("使い方: tock");
+      expect(result.stdout.trimEnd().split("\n")).toHaveLength(3);
+    },
+    RUN_TIMEOUT_MS,
+  );
+
+  it(
+    "出力が短くパイプが閉じられないケースは従来どおり（回帰）",
+    async () => {
+      // 3行に収まるので head は読み切る。EPIPE は起きない
+      const result = await piped(["status"], 3);
+
+      expect(result.stderr).toContain("node exit: 0");
+      expect(result.stdout).toContain("実行中の作業はありません");
+    },
+    RUN_TIMEOUT_MS,
+  );
+});
+
+/**
+ * `EPIPE` 以外の書き込みエラー（#49）。
+ *
+ * **`/dev/full` へ書くと必ず `ENOSPC` になる。** 「`EPIPE` だけを飲み、他は飲まない」の
+ * 後半は、本物の書き込みエラーを起こさないと確かめられない。Linux 以外には
+ * `/dev/full` が無いので、無ければ飛ばす（CI は ubuntu なので飛ばされない）。
+ */
+describe.skipIf(!built || !hasDevFull)("EPIPE 以外の書き込みエラーは飲まない（DoD）", () => {
+  function toDevFull(args: readonly string[]) {
+    const inner = ["node", CLI, ...args].map((part) => `'${part}'`).join(" ");
+
+    return execute("sh", ["-c", `${inner} > /dev/full; echo "node exit: $?" >&2`], {
+      PATH: process.env["PATH"],
+      TOCK_DIR: dir,
+      HOME: home,
+    });
+  }
+
+  it(
+    "書き込みエラーを stderr に報告する",
+    async () => {
+      const result = await toDevFull(["--help"]);
+
+      expect(result.stderr).toContain("ENOSPC");
+    },
+    RUN_TIMEOUT_MS,
+  );
+
+  it(
+    "同じ原因は1回だけ報告する（行数ぶん並べない）",
+    async () => {
+      // `--help` は20行ほど書くので、1行ごとに報告すると同じ ENOSPC がその数だけ並ぶ
+      const result = await toDevFull(["--help"]);
+
+      const reported = result.stderr.split("\n").filter((line) => line.includes("ENOSPC"));
+      expect(reported).toHaveLength(1);
+    },
+    RUN_TIMEOUT_MS,
+  );
+
+  it(
+    "終了コードで失敗を伝える（出力が欠けたのに 0 で終わらない）",
+    async () => {
+      const result = await toDevFull(["--help"]);
+
+      // 書き込みエラーは非同期に届くので、戻り値の代入だけに任せると 0 になる
+      expect(result.stderr).toContain("node exit: 2");
+    },
+    RUN_TIMEOUT_MS,
+  );
+
+  it(
+    "スタックトレースは出さない（報告はするが、内部の詳細は見せない）",
+    async () => {
+      const result = await toDevFull(["--help"]);
+
+      expect(result.stderr).not.toContain("node:internal");
+      expect(result.stderr).not.toContain("Unhandled");
+    },
+    RUN_TIMEOUT_MS,
+  );
 });
 
 /**
