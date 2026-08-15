@@ -129,6 +129,15 @@ describe("すべて 0 のとき（DoD）", () => {
     expect(formatBarChart(rows(["a", 0]), TTY)[0]).toContain("0s");
   });
 
+  it("**他に記録がある日でも、0 の行は空のバーになる（境界: 0 と非 0 が混ざる）**", () => {
+    // `maxMs` が 0 でないので割り算は成立してしまう。0 を先に返しておかないと
+    // 「最低1桁は描く」規則に流れ、記録が無い行に1桁のバーが立つ
+    const lines = formatBarChart(rows(["あり", HOUR], ["なし", 0]), TTY);
+
+    expect(barOf(lines[1] ?? "")).toBe("");
+    expect(barOf(lines[0] ?? "").length).toBeGreaterThan(0);
+  });
+
   it("1件だけ 0 でも落ちない（境界）", () => {
     expect(() => formatBarChart(rows(["a", 0]), TTY)).not.toThrow();
   });
