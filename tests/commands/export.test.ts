@@ -134,6 +134,7 @@ describe("export の引数", () => {
 
   it("引数の検査は store を読む前に行う（記録が壊れていても打ち間違いを先に返す）", async () => {
     const broken: Store = {
+      transaction: <T>(action: () => Promise<T>) => action(),
       append: () => Promise.reject(new Error("読めません")),
       update: () => Promise.reject(new Error("読めません")),
       delete: () => Promise.reject(new Error("読めません")),

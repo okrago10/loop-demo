@@ -30,19 +30,25 @@ export function createStartCommand(deps: CommandDeps): Command {
       rejectUnknownArgs(rest, { command: "start", usage: USAGE });
       const { tags, note } = parseDescription(rest.join(" "));
 
-      const running = await deps.store.findRunning();
-      if (running !== undefined) {
-        throw new UserError(
-          `すでに実行中の作業があります（開始: ${running.start}）。先に tock stop してください`,
+      // **判断と書き込みを1つの操作にする（#11）。** 別々にすると、2つのプロセスが
+      // 同時に「実行中は無い」と読んで、実行中エントリが2つできる（実測で再現する）
+      const entry = await deps.store.transaction(async () => {
+        const running = await deps.store.findRunning();
+        if (running !== undefined) {
+          throw new UserError(
+            `すでに実行中の作業があります（開始: ${running.start}）。先に tock stop してください`,
+          );
+        }
+
+        const created = createEntry(
+          { start: at, tags, ...(note === undefined ? {} : { note }) },
+          { newId: deps.newId },
         );
-      }
 
-      const entry = createEntry(
-        { start: at, tags, ...(note === undefined ? {} : { note }) },
-        { newId: deps.newId },
-      );
+        await deps.store.append(created);
 
-      await deps.store.append(entry);
+        return created;
+      });
 
       const label = note ?? "（名前なし）";
       const tagText = tags.length === 0 ? "" : ` [${tags.map((tag) => `#${tag}`).join(" ")}]`;

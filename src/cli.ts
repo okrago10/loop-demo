@@ -17,9 +17,17 @@ import { createSwitchCommand } from "./commands/switch.js";
 import { createWeekCommand } from "./commands/week.js";
 import { type CommandUsage, formatCommandHelp } from "./format/help.js";
 import { randomId } from "./id.js";
-import { createJsonConfigStore, loadEffectiveConfig } from "./store/config-store.js";
+import {
+  createJsonConfigStore,
+  type LoadConfig,
+  loadEffectiveConfig,
+} from "./store/config-store.js";
 import { createJsonlStore } from "./store/jsonl-store.js";
-import { resolveConfigPath, resolveStorePath } from "./store/store.js";
+import { LockTimeoutError } from "./store/lock.js";
+import { maxRunningMsOf } from "./domain/config.js";
+import { overrunWarning } from "./domain/overrun.js";
+import { DEFAULT_WIDTH, type Terminal } from "./format/terminal.js";
+import { resolveConfigPath, resolveStorePath, type Store } from "./store/store.js";
 import { readVersion } from "./version.js";
 
 /** 正常終了。 */
@@ -82,6 +90,14 @@ export interface CliDeps extends CliIo {
   readonly version: () => string;
   /** 登録されているサブコマンド。 */
   readonly commands: readonly Command[];
+  /**
+   * どのコマンドの前にも出す警告（#24）。省略すると何も出さない。
+   *
+   * **コマンドごとに呼ぶのではなく、ここで1箇所にまとめる。** 止め忘れの警告は
+   * 「どのコマンドを打っても目に入る」ことに意味があり、各コマンドに任せると
+   * 追加したコマンドで付け忘れる。
+   */
+  readonly noticesBeforeRun?: () => Promise<readonly string[]>;
 }
 
 const HELP_FLAGS = new Set(["--help", "-h"]);
@@ -191,6 +207,21 @@ export function createLineWriter(
   };
 }
 
+/**
+ * 実行前の警告を集める。
+ *
+ * **警告のために本来の処理を止めない。** 集める途中で失敗しても握りつぶす——記録が
+ * 読めない状態なら、続くコマンド自身がその理由をきちんと伝える。ここで投げると、
+ * 記録を読まない `config` のようなコマンドまで巻き添えで落ちる。
+ */
+async function noticesOf(deps: CliDeps): Promise<readonly string[]> {
+  try {
+    return (await deps.noticesBeforeRun?.()) ?? [];
+  } catch {
+    return [];
+  }
+}
+
 /** 例外から利用者に見せるメッセージを取り出す。Error でない値を投げられても落ちない。 */
 function messageOf(error: unknown): string {
   if (error instanceof Error) {
@@ -251,12 +282,23 @@ export async function run(argv: readonly string[], deps: CliDeps): Promise<numbe
     return EXIT_OK;
   }
 
+  // **本来の処理より先に出す。** 結果を読んだあとに「その数字は止め忘れかもしれない」と
+  // 言われても、どこに効いているのかを読み直すことになる（設定の警告と同じ順）
+  for (const notice of await noticesOf(deps)) {
+    deps.err(notice);
+  }
+
   try {
     await command.run(rest, { out: deps.out, err: deps.err });
     return EXIT_OK;
   } catch (error) {
     deps.err(messageOf(error));
-    return error instanceof UserError ? EXIT_USAGE : EXIT_INTERNAL;
+
+    // ロック待ちのタイムアウト（#11）も利用者起因として扱う。tock の不具合ではなく、
+    // 別の端末で動いている・異常終了でロックが残っている、という利用者が直せる状態
+    return error instanceof UserError || error instanceof LockTimeoutError
+      ? EXIT_USAGE
+      : EXIT_INTERNAL;
   }
 }
 
@@ -288,12 +330,12 @@ async function confirmOnStdin(question: string): Promise<boolean> {
 }
 
 /**
- * 実際に使うサブコマンドを組み立てる。
+ * 実際に使うサブコマンドと、実行前の警告を組み立てる。
  *
  * 保存先の決定と現在時刻・採番の取得はここでだけ行う。`run` と各コマンドは注入された
  * ものしか使わないので、テストは一時ディレクトリと固定した時刻で完全に再現できる。
  */
-function buildCommands(): readonly Command[] {
+function buildRuntime(): Pick<CliDeps, "commands" | "noticesBeforeRun"> {
   const deps = {
     store: createJsonlStore(resolveStorePath(process.env, homedir())),
     now: () => new Date(),
@@ -304,21 +346,69 @@ function buildCommands(): readonly Command[] {
   // 設定を使わない打刻まで設定ファイルの状態に引きずられる
   const configStore = createJsonConfigStore(resolveConfigPath(process.env, homedir()));
   const loadConfig = () => loadEffectiveConfig(configStore, process.env);
+  const terminal = resolveTerminal(process.stdout);
 
-  return [
-    createStartCommand(deps),
-    createStopCommand(deps),
-    createStatusCommand(deps),
-    createSwitchCommand(deps),
-    createTodayCommand(deps),
-    createSummaryCommand(deps),
-    createLogCommand(deps, loadConfig),
-    createWeekCommand(deps, loadConfig),
-    createEditCommand(deps),
-    createRmCommand(deps, confirmOnStdin),
-    createExportCommand(deps, loadConfig),
-    createConfigCommand(configStore, process.env),
-  ];
+  return {
+    commands: [
+      createStartCommand(deps),
+      createStopCommand(deps, loadConfig),
+      createStatusCommand(deps),
+      createSwitchCommand(deps),
+      createTodayCommand(deps, loadConfig, terminal),
+      createSummaryCommand(deps, loadConfig, terminal),
+      createLogCommand(deps, loadConfig),
+      createWeekCommand(deps, loadConfig, terminal),
+      createEditCommand(deps),
+      createRmCommand(deps, confirmOnStdin),
+      createExportCommand(deps, loadConfig),
+      createConfigCommand(configStore, process.env),
+    ],
+    noticesBeforeRun: () => overrunNotices(deps.store, loadConfig, deps.now()),
+  };
+}
+
+/**
+ * 止め忘れの警告（#24）。
+ *
+ * **実行中が無ければ設定を読まない。** 上限の値は設定から来るが、判定する対象が
+ * 無いなら要らない。すべての起動で設定ファイルを読まない方針（上のコメント）を
+ * ここでも守る。
+ *
+ * **設定の警告はここでは出さない。** 同じ設定を読むコマンド（`summary` / `week` /
+ * `log` / `export` / `stop --auto`）が自分で出すので、ここでも出すと二重になる。
+ *
+ * **公開しているのはテストのため。** ここを空にしても、判定（`domain/overrun.ts`）と
+ * 入口（`run`）のテストは両方通ってしまう——警告が実際に組み立てられているかを
+ * 見張るものが無くなる（mutation test で判明）。
+ */
+export async function overrunNotices(
+  store: Store,
+  loadConfig: LoadConfig,
+  now: Date,
+): Promise<readonly string[]> {
+  const running = await store.findRunning();
+  if (running === undefined) {
+    return [];
+  }
+
+  const { config } = await loadConfig();
+  const warning = overrunWarning(running, now, maxRunningMsOf(config));
+
+  return warning === undefined ? [] : [warning];
+}
+
+/**
+ * 出力先の端末の性質を読む（#20）。
+ *
+ * **`columns` はパイプやリダイレクトでは取れない**（`undefined` になる）ので、既定の
+ * 桁数に落とす。`isTTY` も同じ理由で、`true` のときだけ対話端末とみなす
+ * （`undefined` を真と扱うと、パイプ越しにブロック文字が出る）。
+ */
+function resolveTerminal(stream: NodeJS.WriteStream): Terminal {
+  return {
+    width: stream.columns ?? DEFAULT_WIDTH,
+    isTty: stream.isTTY === true,
+  };
 }
 
 /**
@@ -378,7 +468,7 @@ if (invokedAsEntryPoint()) {
     out: createLineWriter(process.stdout, reportWriteError),
     err: createLineWriter(process.stderr, reportWriteError),
     version: readVersion,
-    commands: buildCommands(),
+    ...buildRuntime(),
   });
 
   // `EPIPE` は終了コードを変えない。読み手が先に終わるのは正常な操作であり、

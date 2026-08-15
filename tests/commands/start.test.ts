@@ -286,3 +286,44 @@ describe("start の未知のオプション", () => {
     expect((await store.listByRange(allTime))[0]?.note).toBe("-5分の中断あり");
   });
 });
+
+describe("同時に打刻しても実行中は1つ（#11）", () => {
+  it("**並行して start しても、実行中エントリは1件しかできない**", async () => {
+    // 「実行中を調べる」と「追記する」を別々にしていると、両方が「実行中は無い」と
+    // 読んで2件できる。そうなると `stop` しても片方が残り、手詰まりになる
+    const results = await Promise.allSettled([
+      createStartCommand(deps()).run(["ひとつめ"], io),
+      createStartCommand(deps()).run(["ふたつめ"], io),
+      createStartCommand(deps()).run(["みっつめ"], io),
+    ]);
+
+    const running = (await store.listByRange(allTime)).filter((entry) => entry.end === undefined);
+    expect(running).toHaveLength(1);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  });
+
+  it("弾かれたほうは、実行中がある旨の利用者向けエラーになる", async () => {
+    const results = await Promise.allSettled([
+      createStartCommand(deps()).run(["ひとつめ"], io),
+      createStartCommand(deps()).run(["ふたつめ"], io),
+    ]);
+
+    const rejected = results.filter((result) => result.status === "rejected");
+    expect(rejected).toHaveLength(1);
+    for (const { reason } of rejected) {
+      expect(reason).toBeInstanceOf(UserError);
+      expect((reason as Error).message).toContain("すでに実行中の作業があります");
+    }
+  });
+
+  it("並行 start のあとに stop すると、実行中が無くなる（手詰まりにならない）", async () => {
+    await Promise.allSettled([
+      createStartCommand(deps()).run(["ひとつめ"], io),
+      createStartCommand(deps()).run(["ふたつめ"], io),
+    ]);
+
+    await createStopCommand(deps(localTime(11, 0))).run([], io);
+
+    expect(await store.findRunning()).toBeUndefined();
+  });
+});

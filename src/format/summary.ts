@@ -1,6 +1,9 @@
+import { roundMs, type RoundingRule } from "../domain/rounding.js";
 import type { Summary } from "../domain/summary.js";
+import { type BarRow, formatBarChart } from "./chart.js";
 import { displayWidth, pad } from "./columns.js";
 import { formatDuration } from "./duration.js";
+import type { Terminal } from "./terminal.js";
 
 /** タグが付いていない時間の行に使う見出し。タグ名と混ざらないよう括弧で囲む。 */
 const UNTAGGED_LABEL = "(タグなし)";
@@ -20,7 +23,11 @@ const EMPTY_MESSAGE = "記録がありません";
  * 見出しの幅を揃えるため、全角文字を2桁として数える（日本語のタグ名でも桁が崩れない）。
  * 端末幅に合わせた折り返しは行わない。折り返しは可視化（#20）の担当範囲。
  */
-export function formatSummaryLines(day: string, summary: Summary): string[] {
+export function formatSummaryLines(
+  day: string,
+  summary: Summary,
+  rounding?: RoundingRule,
+): string[] {
   // 合計が 0 でもタグ別の行があるなら「記録がありません」とは言わない。開始と終了が同時刻の
   // 記録は実際に作れる（`stop` の「0分で停止しても失敗しない」）ので、`work  0s` と出して
   // 存在を見せる。黙って消すと、打刻したのに残っていないように見える。
@@ -35,9 +42,14 @@ export function formatSummaryLines(day: string, summary: Summary): string[] {
   // `(タグなし)` はタグ別の降順に混ぜず、合計の直前に固定で置く。タグ別の行は階層展開で
   // 互いに重なる（`proj` と `proj/a` が同じ時間を持つ）が、タグなしはどのタグとも重ならない。
   // 性質の違う量を同じ並びに混ぜると、上から読んだときに比較できるものだと誤解させる
+  // **表示する各セルを丸める。** `合計` はタグ別の和ではなく実時間なので、
+  // 他のセルと同じように「そのセルの値を丸める」（#63 の案A）。タグ別の和にすると
+  // 階層タグの時間を二重に数える（`work/tock` の時間は `work` にも入る）
+  const round = (ms: number): number => (rounding === undefined ? ms : roundMs(ms, rounding));
+
   const rows = [
-    ...summary.byTag.map((row) => ({ label: row.tag, ms: row.totalMs })),
-    ...(summary.untaggedMs > 0 ? [{ label: UNTAGGED_LABEL, ms: summary.untaggedMs }] : []),
+    ...summary.byTag.map((row) => ({ label: row.tag, ms: round(row.totalMs) })),
+    ...(summary.untaggedMs > 0 ? [{ label: UNTAGGED_LABEL, ms: round(summary.untaggedMs) }] : []),
   ];
 
   const width = Math.max(...rows.map((row) => displayWidth(row.label)), displayWidth(TOTAL_LABEL));
@@ -47,7 +59,43 @@ export function formatSummaryLines(day: string, summary: Summary): string[] {
     lines.push(`${pad(row.label, width)}  ${formatDuration(row.ms)}`);
   }
 
-  lines.push(`${pad(TOTAL_LABEL, width)}  ${formatDuration(summary.totalMs)}`);
+  lines.push(`${pad(TOTAL_LABEL, width)}  ${formatDuration(round(summary.totalMs))}`);
 
   return lines;
+}
+
+/**
+ * 同じ集計を横棒グラフにする（#20）。
+ *
+ * **表と同じ行・同じ丸めを使う。** 図と表で数字が食い違うと、どちらが本当か分からない。
+ * 行の作り方をここに寄せているのはそのためで、`formatSummaryLines` と並べて置くと
+ * 片方だけ直したときに気づける。
+ *
+ * **合計の行はグラフに入れない。** 合計は必ず最大値になるので、常に満杯のバーが1本
+ * 立つだけで何も表さず、他の行の比を潰す。数字が要るなら表を見ればよい。
+ */
+export function formatSummaryChartLines(
+  day: string,
+  summary: Summary,
+  terminal: Terminal,
+  rounding?: RoundingRule,
+): string[] {
+  // 「記録がありません」の判定は表とまったく同じにする
+  if (summary.totalMs === 0 && summary.byTag.length === 0) {
+    return [day, EMPTY_MESSAGE];
+  }
+
+  const rows: BarRow[] = chartRows(summary, rounding);
+
+  return [day, ...formatBarChart(rows, terminal)];
+}
+
+/** 表とグラフで共通の行。並びは合計の降順（`summarize` が決めた順）のまま。 */
+function chartRows(summary: Summary, rounding?: RoundingRule): BarRow[] {
+  const round = (ms: number): number => (rounding === undefined ? ms : roundMs(ms, rounding));
+
+  return [
+    ...summary.byTag.map((row) => ({ label: row.tag, ms: round(row.totalMs) })),
+    ...(summary.untaggedMs > 0 ? [{ label: UNTAGGED_LABEL, ms: round(summary.untaggedMs) }] : []),
+  ];
 }

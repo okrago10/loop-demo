@@ -59,7 +59,18 @@ export function createRmCommand(deps: CommandDeps, confirm: Confirm): Command {
         return;
       }
 
-      await deps.store.delete(target.id);
+      // **確認はロックの外で待つ（#11）。** 人の返事を待つ間ロックを握ると、その間
+      // 他のプロセスの打刻がすべてタイムアウトする。代わりに、答えを得てから
+      // **もう一度引き当て直して**削除する——待っている間に消えた記録を、
+      // 見えなくなった後から消しにいかないようにするため
+      await deps.store.transaction(async () => {
+        const current = await deps.store.listAll();
+        if (!current.some((entry) => entry.id === target.id)) {
+          throw new UserError(`確認している間に、この記録は無くなりました（id: ${shown}）`);
+        }
+
+        await deps.store.delete(target.id);
+      });
 
       io.out(`削除しました: ${describe(target)}`);
       io.out(`id: ${shown}`);

@@ -152,8 +152,8 @@ function buildRegistry(dir: string, now: () => Date): Registry {
       createStopCommand(deps),
       createStatusCommand(deps),
       createSwitchCommand(deps),
-      createTodayCommand(deps),
-      createSummaryCommand(deps),
+      createTodayCommand(deps, loadConfig),
+      createSummaryCommand(deps, loadConfig),
       createLogCommand(deps, loadConfig),
       createWeekCommand(deps, loadConfig),
       createEditCommand(deps),
@@ -504,12 +504,15 @@ describe("実装されていない機能が書かれていない（DoD）", () =
   });
 
   it("`src/cli.ts` が組み立てるコマンドと、このテストが組み立てるコマンドが一致する", async () => {
+    // **コマンド一覧は `commands: [ ... ]` として読む。** `buildRuntime` は
+    // コマンドと実行前の警告（#24）をまとめて返すので、`return` の直後が配列とは限らない。
+    // 名前で位置を決めているぶん、`cli.ts` の書き方を変えるとここも直す必要がある
     const source = await readFile(join(ROOT, "src", "cli.ts"), "utf8");
-    const from = source.indexOf("function buildCommands(");
+    const from = source.indexOf("function buildRuntime(");
     expect(from).toBeGreaterThan(-1);
 
-    const listStart = source.indexOf("return [", from);
-    const listEnd = source.indexOf("];", listStart);
+    const listStart = source.indexOf("commands: [", from);
+    const listEnd = source.indexOf("],", listStart);
     expect(listStart).toBeGreaterThan(-1);
     expect(listEnd).toBeGreaterThan(listStart);
 

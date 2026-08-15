@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { UserError } from "../../src/cli.js";
 import { createConfigCommand } from "../../src/commands/config.js";
 import { DEFAULT_CONFIG } from "../../src/domain/config.js";
+import { DEFAULT_MAX_RUNNING_HOURS } from "../../src/domain/overrun.js";
 import { type ConfigStore, createJsonConfigStore } from "../../src/store/config-store.js";
 
 let dir = "";
@@ -65,7 +66,15 @@ describe("config get", () => {
   it("キーを省略するとすべての設定を key=value で出す", async () => {
     await command().run(["get"], io);
 
-    expect(out).toEqual([`weekStartsOn=${String(DEFAULT_CONFIG.weekStartsOn)}`]);
+    // 丸め（#63）は未設定＝丸めないなので、値は空で出る。
+    // 行そのものを消さないのは「設定できるキーがある」ことを見せるため。
+    // **`maxRunningHours` は未設定でも空にならない**——書かなくても効いている値（#24）
+    expect(out).toEqual([
+      `weekStartsOn=${String(DEFAULT_CONFIG.weekStartsOn)}`,
+      "rounding.unitMinutes=",
+      "rounding.mode=",
+      `maxRunningHours=${String(DEFAULT_MAX_RUNNING_HOURS)}`,
+    ]);
     expect(err).toEqual([]);
   });
 
