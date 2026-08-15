@@ -335,9 +335,18 @@ async function confirmOnStdin(question: string): Promise<boolean> {
  * 保存先の決定と現在時刻・採番の取得はここでだけ行う。`run` と各コマンドは注入された
  * ものしか使わないので、テストは一時ディレクトリと固定した時刻で完全に再現できる。
  */
-function buildRuntime(): Pick<CliDeps, "commands" | "noticesBeforeRun"> {
+function buildRuntime(err: (line: string) => void): Pick<CliDeps, "commands" | "noticesBeforeRun"> {
+  const storePath = resolveStorePath(process.env, homedir());
   const deps = {
-    store: createJsonlStore(resolveStorePath(process.env, homedir())),
+    // **読めない行を飛ばしたら stderr に件数を出す（#85・案2）。** 黙って飛ばすと、
+    // 手で編集して壊した記録が消えたことに気づけない。行そのものは消していないので、
+    // そのことも文言に残す（設定ファイルの「消しません」と同じ扱い）
+    store: createJsonlStore(storePath, undefined, (count, filePath) => {
+      err(
+        `記録のファイルに読めない行が ${String(count)} 行あり、飛ばしました: ${filePath}。` +
+          `行そのものは消していません`,
+      );
+    }),
     now: () => new Date(),
     newId: randomId,
   };
@@ -464,11 +473,12 @@ if (invokedAsEntryPoint()) {
     }
   };
 
+  const errWriter = createLineWriter(process.stderr, reportWriteError);
   const code = await run(process.argv.slice(2), {
     out: createLineWriter(process.stdout, reportWriteError),
-    err: createLineWriter(process.stderr, reportWriteError),
+    err: errWriter,
     version: readVersion,
-    ...buildRuntime(),
+    ...buildRuntime(errWriter),
   });
 
   // `EPIPE` は終了コードを変えない。読み手が先に終わるのは正常な操作であり、
