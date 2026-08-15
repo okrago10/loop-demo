@@ -160,6 +160,7 @@ describe("overrideFromEnv（優先順位: 環境変数 > 設定ファイル）",
 
   it("環境変数名はキーから決まる", () => {
     expect(envNameOf("weekStartsOn")).toBe("TOCK_WEEK_STARTS_ON");
+    expect(envNameOf("maxRunningHours")).toBe("TOCK_MAX_RUNNING_HOURS");
   });
 });
 
