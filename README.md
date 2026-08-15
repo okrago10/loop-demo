@@ -391,6 +391,8 @@ $ tock export --format json --period today
 ```console
 $ tock config get
 weekStartsOn=1
+rounding.unitMinutes=
+rounding.mode=
 $ tock config set weekStartsOn 0
 設定しました: weekStartsOn=0
 ~/.tock/config.json
@@ -398,8 +400,9 @@ $ tock config get weekStartsOn
 0
 ```
 
-2行目に出るのが**書き込んだ設定ファイルのパス**（`TOCK_DIR` を指定していればそちら）。
-設定できる項目は「設定」を参照。
+`get` でキーを省略すると全項目を出す。**値が空の行は「設定していない」**という意味で、
+そのキーは既定のまま扱われる。`set` の2行目に出るのが**書き込んだ設定ファイルのパス**
+（`TOCK_DIR` を指定していればそちら）。設定できる項目は「設定」を参照。
 
 ## タグ
 
@@ -441,11 +444,11 @@ c01fa0f5  2026-08-12  09:00-10:30  1h 30m  設計 #work/tock
 
 ## 設定
 
-設定できる項目は1つ。
-
 | キー | 値 | 既定 |
 | --- | --- | --- |
 | `weekStartsOn` | 0（日曜）〜6（土曜）の整数 | 1（月曜） |
+| `rounding.unitMinutes` | 1以上の整数（分） | 未設定（丸めない） |
+| `rounding.mode` | `ceil` / `floor` / `nearest` | 未設定（丸めない） |
 
 設定は次の優先順位で決まる。**左が強い。**
 
@@ -453,17 +456,39 @@ c01fa0f5  2026-08-12  09:00-10:30  1h 30m  設計 #work/tock
 コマンドラインオプション > 環境変数 > 設定ファイル > 既定値
 ```
 
-環境変数の名前はキーから決まる（`weekStartsOn` なら `TOCK_WEEK_STARTS_ON`）。
+環境変数の名前はキーから決まる（`weekStartsOn` なら `TOCK_WEEK_STARTS_ON`、
+`rounding.unitMinutes` なら `TOCK_ROUNDING_UNIT_MINUTES`）。
 
-設定ファイルは JSON で、`tock config set` が書く。
+設定ファイルは JSON で、`tock config set` が書く。**ドットを含むキーは入れ子になる。**
 
 ```json
 {
-  "weekStartsOn": 0
+  "weekStartsOn": 0,
+  "rounding": { "unitMinutes": 15, "mode": "ceil" }
 }
 ```
 
 読めない値が書かれていても打刻や集計は止まらない。その値だけ既定値に落とし、警告を出す。
+
+### 丸め
+
+`rounding` を設定すると、**集計の表示だけ**が丸まる。工数報告で「15分単位」のような
+粒度が要るときに使う。
+
+```console
+$ TOCK_ROUNDING_UNIT_MINUTES=15 TOCK_ROUNDING_MODE=ceil tock today
+```
+
+- **単位と丸め方の両方を設定して初めて効く。** 片方だけでは「15分単位でどちらに寄せるか」
+  が決まらないので、丸めない。片方だけ書いた場合は、効かないまま黙らずに警告を出す
+- 丸まるのは `summary` / `today` / `week` の表。`log` / `export` / `status` と
+  **保存された記録は実測のまま**——機械が読む値に表示の判断を焼き込まない
+- 長さ 0 の記録は `ceil` でも 0 のまま。記録していない時間を報告に載せないため
+- `week` は**表示するセルを丸め、行の合計はその和**にする。こうすると各行が横に閉じる。
+  そのぶん総合計は真の合計から数分ずれることがあるが、**表が閉じていないほうが害が大きい**
+- **`合計` 行はタグ別の行を縦に足したものではない。** 階層タグは同じ時間を複数の行に出す
+  （`#work/tock` の時間は `work` の行にも入る）ので、縦に足すと二重に数える。`合計` 行は
+  その日・その曜日の**実時間**を丸めたもので、これは丸めを入れる前からの性質
 
 ## データの保存場所
 

@@ -1,4 +1,5 @@
 import { formatDay } from "../domain/day.js";
+import { roundMs, type RoundingRule } from "../domain/rounding.js";
 import type { WeekSummary } from "../domain/week-summary.js";
 import { formatDuration } from "./duration.js";
 import { pad, widestWidth } from "./columns.js";
@@ -42,7 +43,7 @@ const GAP = "  ";
  * 各列は表示幅で揃えるが、**行末の空白は残さない**。端末に出す文字列に行末の空白が付くと、
  * ファイルへリダイレクトしたときやコピーしたときに余計な差分になる。
  */
-export function formatWeekLines(summary: WeekSummary): string[] {
+export function formatWeekLines(summary: WeekSummary, rounding?: RoundingRule): string[] {
   const range = weekRange(summary);
 
   // 合計が 0 でタグの行も無い週は、0 だけの表を見せる意味がない
@@ -56,11 +57,23 @@ export function formatWeekLines(summary: WeekSummary): string[] {
     { label: TOTAL_LABEL, row: { dailyMs: summary.dailyTotalMs, totalMs: summary.totalMs } },
   ];
 
+  // **セルを丸めてから、行の合計はその和にする（#63 の案A）。** こうすると各行が
+  // 横に閉じる。行の合計を独立に丸めると、並んだセルを足した値と合わなくなる。
+  //
+  // **`合計` 行も同じ扱い。** その行のセルは「その曜日の実時間」なので、丸めて足せば
+  // 総合計になる。タグ別セルの列を足さないのは、階層タグの時間を二重に数えないため
+  // （`dailyTotalMs` が「タグ別の列の和ではない」と定義されている理由と同じ）
+  const round = (ms: number): number => (rounding === undefined ? ms : roundMs(ms, rounding));
+
   const headers = [...summary.days.map(weekdayName), TOTAL_LABEL];
-  const cells = rows.map((entry) => [
-    ...entry.row.dailyMs.map((ms) => formatDuration(ms)),
-    formatDuration(entry.row.totalMs),
-  ]);
+  const cells = rows.map((entry) => {
+    const daily = entry.row.dailyMs.map((ms) => round(ms));
+
+    return [
+      ...daily.map((ms) => formatDuration(ms)),
+      formatDuration(daily.reduce((total, ms) => total + ms, 0)),
+    ];
+  });
 
   const labelWidth = widestWidth(rows.map((entry) => entry.label));
   const columnWidths = headers.map((header, index) =>
