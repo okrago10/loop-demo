@@ -83,12 +83,20 @@ describe("status（実行中あり）", () => {
     expect(out.join("\n")).toContain("1h 23m");
   });
 
-  it("開始時刻を表示する", async () => {
+  it("**開始時刻を、保存形式ではなくローカルの読める形で表示する**（#45）", async () => {
+    // 以前はここが保存形式（`2026-08-12T09:00:00.000Z`）そのままだった。
+    // **期待値を壁時計から組み立てる**——`09:00:00` と直書きすると UTC でしか通らない
     await startAt9();
 
     await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z"))).run([], io);
 
-    expect(out.join("\n")).toContain("2026-08-12T09:00:00.000Z");
+    const startedAt = new Date("2026-08-12T09:00:00Z");
+    const clock = [startedAt.getHours(), startedAt.getMinutes(), startedAt.getSeconds()]
+      .map((part) => String(part).padStart(2, "0"))
+      .join(":");
+
+    expect(out.join("\n")).toContain(clock);
+    expect(out.join("\n")).not.toContain("2026-08-12T09:00:00.000Z");
   });
 
   it("stdout に出て stderr は空、終了コードは 0 相当（例外を投げない）", async () => {
@@ -294,11 +302,31 @@ describe("開始時刻が未来の記録（DoD）", () => {
   });
 
   it("メッセージに記録の開始時刻と「未来」であることが含まれる", async () => {
+    // **保存形式ではなく、読める形で出す（#45）。** 期待値は壁時計から組み立てる——
+    // `2027-01-01 00:00:00` と直書きすると UTC でしか通らない。
+    // `NOW` とは別の日なので、`formatMoment` は日付も付ける
+    const future = new Date(FUTURE);
+    const shown = [
+      `${String(future.getFullYear())}-`,
+      String(future.getMonth() + 1).padStart(2, "0"),
+      `-${String(future.getDate()).padStart(2, "0")} `,
+      [future.getHours(), future.getMinutes(), future.getSeconds()]
+        .map((part) => String(part).padStart(2, "0"))
+        .join(":"),
+    ].join("");
     await saveFutureRunning();
 
-    await expect(createStatusCommand(deps(NOW)).run([], io)).rejects.toThrow(
-      new RegExp(`未来.*${FUTURE.replace(/[.]/g, "\\.")}|${FUTURE.replace(/[.]/g, "\\.")}.*未来`),
-    );
+    let message = "";
+    try {
+      await createStatusCommand(deps(NOW)).run([], io);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message).toContain("未来");
+    expect(message).toContain(shown);
+    // 保存形式の名残が混ざっていない
+    expect(message).not.toContain(FUTURE);
   });
 
   it("--short でも出力は1行に収まる", async () => {
