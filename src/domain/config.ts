@@ -1,3 +1,4 @@
+import { EXPORT_FORMATS, type ExportFormat, isExportFormat } from "./export.js";
 import { DEFAULT_MAX_RUNNING_HOURS, hoursToMs } from "./overrun.js";
 import { isTimeZone } from "./timezone.js";
 import type { RoundingMode, RoundingRule } from "./rounding.js";
@@ -33,6 +34,7 @@ export const CONFIG_KEYS = [
   "rounding.mode",
   "maxRunningHours",
   "timezone",
+  "defaultFormat",
 ] as const;
 
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
@@ -68,6 +70,15 @@ export interface Config {
    * （`ResolvedConfig`）。
    */
   readonly timezone?: string;
+  /**
+   * `export` が `--format` を省略されたときに使う形式（#65）。
+   *
+   * **書かなければ既定は無く、`--format` が必須のまま。** #23 が必須にしたのは
+   * 「既定を決めると、書き出したファイルの形式がコマンドの見た目から分からなくなる」
+   * ためで、その理由は**利用者がここで明示的に選んだ場合にだけ**当たらなくなる。
+   * こちらが `csv` などを補うと、選んでいない形式で書き出されることになる。
+   */
+  readonly defaultFormat?: ExportFormat;
 }
 
 /**
@@ -180,6 +191,9 @@ export function describeConfigKey(key: ConfigKey): string {
     case "timezone": {
       return "IANA のタイムゾーン名（例: Asia/Tokyo）";
     }
+    case "defaultFormat": {
+      return `${EXPORT_FORMATS.join(" / ")} のいずれか`;
+    }
     default: {
       // キーを増やして case を書き忘れると、ここで型検査が落ちる
       const unhandled: never = key;
@@ -205,6 +219,9 @@ function fromJson(key: ConfigKey, value: unknown): ConfigValue | undefined {
     }
     case "timezone": {
       return typeof value === "string" && isTimeZone(value) ? value : undefined;
+    }
+    case "defaultFormat": {
+      return isExportFormat(value) ? value : undefined;
     }
     default: {
       const unhandled: never = key;
@@ -245,6 +262,11 @@ export function parseConfigText(key: ConfigKey, text: string): ConfigValue | und
       // 増減するので、自前の表を持つと実際に使えるゾーンと食い違う
       return isTimeZone(text) ? text : undefined;
     }
+    case "defaultFormat": {
+      // **大文字を受け付けない。** `--format CSV` を通すのは打鍵の揺れを吸収するため
+      // だが、保存される設定は `config get` が出す形と1対1にしたい
+      return isExportFormat(text) ? text : undefined;
+    }
     default: {
       const unhandled: never = key;
       throw new Error(`設定キーの読み取りがありません: ${JSON.stringify(unhandled)}`);
@@ -269,6 +291,9 @@ function withValue(config: Config, key: ConfigKey, value: ConfigValue): Config {
     }
     case "timezone": {
       return { ...config, timezone: asTimeZone(key, value) };
+    }
+    case "defaultFormat": {
+      return { ...config, defaultFormat: asExportFormat(key, value) };
     }
     default: {
       const unhandled: never = key;
@@ -295,6 +320,14 @@ function asNumber(key: ConfigKey, value: ConfigValue): number {
 function asTimeZone(key: ConfigKey, value: ConfigValue): string {
   if (typeof value !== "string" || !isTimeZone(value)) {
     throw new Error(`${key} の値がタイムゾーン名ではありません: ${JSON.stringify(value)}`);
+  }
+
+  return value;
+}
+
+function asExportFormat(key: ConfigKey, value: ConfigValue): ExportFormat {
+  if (!isExportFormat(value)) {
+    throw new Error(`${key} の値が書き出しの形式ではありません: ${JSON.stringify(value)}`);
   }
 
   return value;
@@ -346,6 +379,10 @@ export function formatConfigValue(config: Config, key: ConfigKey): string {
       // 解決済みの設定（`ResolvedConfig`）を渡せば実効値が出る。未解決の `Config` では
       // 空になるが、実行環境のゾーンをここで引くことはできない（domain に I/O を置かない）
       return config.timezone ?? "";
+    }
+    case "defaultFormat": {
+      // 未設定は空。丸めと同じで、書かなければ効く値が無い（`--format` が要る）
+      return config.defaultFormat ?? "";
     }
     default: {
       const unhandled: never = key;
@@ -545,6 +582,9 @@ function describeDefault(key: ConfigKey): string {
     }
     case "timezone": {
       return "既定（実行環境のタイムゾーン）";
+    }
+    case "defaultFormat": {
+      return "既定（--format の指定が必要）";
     }
     default: {
       const unhandled: never = key;
