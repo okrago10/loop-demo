@@ -71,6 +71,21 @@ function isRealCalendarDate(iso: string): boolean {
   );
 }
 
+/**
+ * 保存されている日時の文字列が、書き込み時（`createEntry`）と同じ基準で妥当か（#85）。
+ *
+ * **規則はここに1つだけ置き、store が読み込み時に呼ぶ。** 以前は store 側が
+ * `Date.parse` だけで判定しており、`tock start --at` なら弾かれる値（タイムゾーンなし・
+ * 実在しない日・範囲外の時刻）が手で編集したファイルからは通っていた。判定を
+ * 複製せず同じ部品（`ISO_8601_WITH_ZONE` / `isRealCalendarDate`）を使うので、
+ * 片方だけ直して食い違うことがない。
+ */
+export function isStoredTimestamp(value: string): boolean {
+  return (
+    ISO_8601_WITH_ZONE.test(value) && !Number.isNaN(Date.parse(value)) && isRealCalendarDate(value)
+  );
+}
+
 /** Date または ISO 8601 文字列を、UTC 正規形の ISO 8601 文字列に揃える。 */
 function toIsoString(value: Date | string, label: string): string {
   if (value instanceof Date) {

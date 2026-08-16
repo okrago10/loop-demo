@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import type { Entry } from "../domain/entry.js";
+import { type Entry, isStoredTimestamp } from "../domain/entry.js";
 import { overlapsPeriod } from "../domain/period.js";
 import { DEFAULT_LOCK_OPTIONS, type LockOptions, withLock } from "./lock.js";
 import type { Store, StoreRange } from "./store.js";
@@ -96,19 +96,18 @@ function asNonEmptyString(value: unknown): string | undefined {
 }
 
 /**
- * 日時として読めるかを確かめる。
+ * 日時として読めるかを確かめる。**基準は書き込み時（`createEntry`）と同じ**（#85）。
  *
- * **`createEntry` より基準は緩い。** あちらはタイムゾーン付き ISO 8601 であることと、
- * 暦としてその日が実在することまで見るが、ここは `Date.parse` が通るかだけを見る。
- * つまり手で編集してタイムゾーンなしの日時を書いた行は、書き込み時より甘い基準で
- * 通過する。
+ * 以前は `Date.parse` が通るかだけを見ており、`tock start --at` なら弾かれる値
+ * （タイムゾーンなし・実在しない日・`T24:00:00`）が手で編集したファイルからは
+ * 通っていた。規則そのものは `domain/entry.ts` の `isStoredTimestamp` に1つだけ置き、
+ * ここは呼ぶだけにする——判定を複製すると片方だけ直したときに食い違う。
  *
- * ここでの役目は「壊れて読めない行を落とす」ことに限る。**書き込み時と同じ厳密さに
- * 揃えるかは #85 の担当範囲**（#10 で形のバージョンは入れたが、値の妥当性は別の話）。
+ * 値は正規化せずそのまま返す。読み込みは記録を書き換えない。
  */
 function asTimestamp(value: unknown): string | undefined {
   const text = asNonEmptyString(value);
-  if (text === undefined || Number.isNaN(Date.parse(text))) {
+  if (text === undefined || !isStoredTimestamp(text)) {
     return undefined;
   }
 
@@ -228,30 +227,43 @@ function parseLine(line: string, filePath: string): StoreRecord | undefined {
 /**
  * ファイルの内容を JSONL として読み、現在の状態に畳み込む。
  *
- * **読めない行は飛ばす。** 1 行の破損で全記録が読めなくなるほうが損失が大きい。
- * 飛ばしたことを利用者に伝えるかどうかは #85 の担当範囲（いまは黙って飛ばす）。
+ * **読めない行は飛ばすが、飛ばした行数を数えて返す（#85・案2）。** 1 行の破損で
+ * 全記録が読めなくなるほうが損失は大きい。しかし黙って飛ばすと、手で編集して壊した
+ * 記録が消えたことに利用者が気づけない。件数の通知は呼び出し側（`onSkippedLines`）が
+ * 受け持つ。
+ *
+ * **空行は「壊れた行」に数えない。** 末尾の改行で必ず1つ空要素ができるため、
+ * 数えると壊れていないファイルでも誤報になる。
  *
  * **ただし「知らない新しいバージョン」は飛ばさずエラーになる**（`assertReadableVersion`）。
  * そちらは壊れた行ではなく、新しい版が正しく書いた記録だから。
  *
  * 追加順を保つため Map を使う。更新は元の位置に留まる。
  */
-async function readState(filePath: string): Promise<Map<string, Entry>> {
+async function readState(
+  filePath: string,
+): Promise<{ state: Map<string, Entry>; skippedLines: number }> {
   let raw: string;
   try {
     raw = await readFile(filePath, "utf8");
   } catch (error) {
     if (isNotFound(error)) {
       // ファイルが無い状態は「まだ記録がない」と同じ。読み出しでは作らない
-      return new Map();
+      return { state: new Map(), skippedLines: 0 };
     }
     throw error;
   }
 
+  let skippedLines = 0;
   const state = new Map<string, Entry>();
   for (const line of raw.split("\n")) {
+    if (line.trim() === "") {
+      continue;
+    }
+
     const record = parseLine(line, filePath);
     if (record === undefined) {
+      skippedLines += 1;
       continue;
     }
 
@@ -262,7 +274,7 @@ async function readState(filePath: string): Promise<Map<string, Entry>> {
     }
   }
 
-  return state;
+  return { state, skippedLines };
 }
 
 function isNotFound(error: unknown): boolean {
@@ -285,11 +297,40 @@ async function appendRecord(filePath: string, record: StoreRecord): Promise<void
  * 実行中エントリが2つできて `stop` できなくなる。**読み出しはロックを取らない**——
  * 追記は行単位で守られているので、読み手は壊れた状態を見ない。
  */
+/**
+ * 読めない行を飛ばしたときの通知。`(飛ばした行数, ファイルのパス)` を受け取る。
+ *
+ * 出力先はここで決めない（stderr へ書くのは CLI の縁の責務）。省略すれば従来どおり
+ * 黙って飛ばす——テストの多くは壊れたファイルを扱わないので、必須にしない。
+ */
+export type OnSkippedLines = (count: number, filePath: string) => void;
+
 export function createJsonlStore(
   filePath: string,
   lock: LockOptions = DEFAULT_LOCK_OPTIONS,
+  onSkippedLines?: OnSkippedLines,
 ): Store {
   const lockPath = `${filePath}.lock`;
+
+  /**
+   * 最後に通知した件数。**同じ件数は繰り返し通知しない。**
+   *
+   * 1つのコマンドの中で読み出しは複数回走る（`stop` は判断のために読み、書いてから
+   * また読む）。そのたびに通知すると、同じ壊れた行が1回の操作で何度も報告される。
+   * 件数が変わったとき（読んでいる間にさらに壊れたとき）だけ改めて通知する。
+   */
+  let reportedSkips = 0;
+
+  /** 読み出して、飛ばした行があれば1度だけ通知し、状態を返す。 */
+  const reading = async (): Promise<Map<string, Entry>> => {
+    const { state, skippedLines } = await readState(filePath);
+    if (skippedLines > 0 && skippedLines !== reportedSkips) {
+      reportedSkips = skippedLines;
+      onSkippedLines?.(skippedLines, filePath);
+    }
+
+    return state;
+  };
 
   /**
    * いま自分がロックを握っているか。
@@ -313,7 +354,7 @@ export function createJsonlStore(
   /** 読み出してから書くまでを1つにする。個々の書き込み操作が使う。 */
   const writing = async (write: (state: Map<string, Entry>) => Promise<void>): Promise<void> =>
     exclusively(async () => {
-      await write(await readState(filePath));
+      await write(await reading());
     });
 
   return {
@@ -354,7 +395,7 @@ export function createJsonlStore(
     async listAll(): Promise<Entry[]> {
       // 畳み込みの結果をそのまま返す。**絞り込みが無いので範囲の検査も要らない**
       // （`listByRange` が持つ `NaN` や `end < start` の検査は、範囲があってこそのもの）
-      return [...(await readState(filePath)).values()];
+      return [...(await reading()).values()];
     },
 
     async listByRange(range: StoreRange): Promise<Entry[]> {
@@ -367,7 +408,7 @@ export function createJsonlStore(
         throw new Error("範囲の end が start より前です");
       }
 
-      const state = await readState(filePath);
+      const state = await reading();
 
       // 重なりの判定は domain に1つだけ置く（`overlapsPeriod`）。以前はここに同じ規則を
       // 書き写していて、実行中エントリの下限を落とすバグを出している（#40）。
@@ -376,7 +417,7 @@ export function createJsonlStore(
     },
 
     async findRunning(): Promise<Entry | undefined> {
-      const state = await readState(filePath);
+      const state = await reading();
 
       let latest: Entry | undefined;
       for (const entry of state.values()) {
