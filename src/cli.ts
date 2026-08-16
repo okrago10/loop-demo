@@ -4,11 +4,12 @@ import { createInterface } from "node:readline/promises";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
+import type { CommandDeps } from "./commands/args.js";
 import { createConfigCommand } from "./commands/config.js";
 import { createEditCommand } from "./commands/edit.js";
 import { createExportCommand } from "./commands/export.js";
 import { createLogCommand } from "./commands/log.js";
-import { createRmCommand } from "./commands/rm.js";
+import { type Confirm, createRmCommand } from "./commands/rm.js";
 import { createStartCommand } from "./commands/start.js";
 import { createStatusCommand } from "./commands/status.js";
 import { createStopCommand } from "./commands/stop.js";
@@ -18,6 +19,7 @@ import { createWeekCommand } from "./commands/week.js";
 import { type CommandUsage, formatCommandHelp } from "./format/help.js";
 import { randomId } from "./id.js";
 import {
+  type ConfigStore,
   createJsonConfigStore,
   type LoadConfig,
   loadEffectiveConfig,
@@ -330,14 +332,70 @@ async function confirmOnStdin(question: string): Promise<boolean> {
 }
 
 /**
+ * サブコマンドの組み立てに要るもの一式。**すべて引数で受け取る。**
+ *
+ * 保存先も端末も確認の取り方もここに現れるので、`buildCommands` 自身は
+ * 実行環境（`process.env` / `homedir()` / `process.stdout` / 標準入力）を読まない。
+ */
+export interface CommandParts {
+  readonly deps: CommandDeps;
+  readonly configStore: ConfigStore;
+  readonly loadConfig: LoadConfig;
+  readonly env: Readonly<Record<string, string | undefined>>;
+  readonly terminal: Terminal;
+  readonly confirm: Confirm;
+}
+
+/**
+ * 登録するサブコマンドを組み立てる。**この一覧が `tock` の全機能。**
+ *
+ * **`buildRuntime` から切り出して公開している。** `buildRuntime` は保存先を
+ * `resolveStorePath(process.env, homedir())` で決めるので、テストから呼ぶと実ユーザーの
+ * `~/.tock` を指してしまう（`CLAUDE.md`「テストがユーザーの実際の `~/.tock` を
+ * 読み書きしないこと」）。行き先を引数にしたこちらなら、一時ディレクトリを渡して
+ * 同じ一覧を得られる。
+ *
+ * README の検証（`tests/docs/readme.test.ts`）は、テスト側で別に組み立てた一式で
+ * 実行例を走らせる。その一式と本物が食い違っていないかを、この関数を呼んで突き合わせる。
+ * **以前はソースを文字列として読んでいたため、書き方を変えただけで落ちた**（#102）。
+ */
+export function buildCommands(parts: CommandParts): readonly Command[] {
+  const { deps, configStore, loadConfig, env, terminal, confirm } = parts;
+
+  return [
+    createStartCommand(deps, loadConfig),
+    createStopCommand(deps, loadConfig),
+    createStatusCommand(deps, loadConfig),
+    createSwitchCommand(deps, loadConfig),
+    createTodayCommand(deps, loadConfig, terminal),
+    createSummaryCommand(deps, loadConfig, terminal),
+    createLogCommand(deps, loadConfig),
+    createWeekCommand(deps, loadConfig, terminal),
+    createEditCommand(deps, loadConfig),
+    createRmCommand(deps, confirm),
+    createExportCommand(deps, loadConfig),
+    createConfigCommand(configStore, env),
+  ];
+}
+
+/**
  * 実際に使うサブコマンドと、実行前の警告を組み立てる。
  *
  * 保存先の決定と現在時刻・採番の取得はここでだけ行う。`run` と各コマンドは注入された
  * ものしか使わないので、テストは一時ディレクトリと固定した時刻で完全に再現できる。
  */
-function buildRuntime(): Pick<CliDeps, "commands" | "noticesBeforeRun"> {
+function buildRuntime(err: (line: string) => void): Pick<CliDeps, "commands" | "noticesBeforeRun"> {
+  const storePath = resolveStorePath(process.env, homedir());
   const deps = {
-    store: createJsonlStore(resolveStorePath(process.env, homedir())),
+    // **読めない行を飛ばしたら stderr に件数を出す（#85・案2）。** 黙って飛ばすと、
+    // 手で編集して壊した記録が消えたことに気づけない。行そのものは消していないので、
+    // そのことも文言に残す（設定ファイルの「消しません」と同じ扱い）
+    store: createJsonlStore(storePath, undefined, (count, filePath) => {
+      err(
+        `記録のファイルに読めない行が ${String(count)} 行あり、飛ばしました: ${filePath}。` +
+          `行そのものは消していません`,
+      );
+    }),
     now: () => new Date(),
     newId: randomId,
   };
@@ -346,23 +404,16 @@ function buildRuntime(): Pick<CliDeps, "commands" | "noticesBeforeRun"> {
   // 設定を使わない打刻まで設定ファイルの状態に引きずられる
   const configStore = createJsonConfigStore(resolveConfigPath(process.env, homedir()));
   const loadConfig = () => loadEffectiveConfig(configStore, process.env);
-  const terminal = resolveTerminal(process.stdout);
 
   return {
-    commands: [
-      createStartCommand(deps, loadConfig),
-      createStopCommand(deps, loadConfig),
-      createStatusCommand(deps, loadConfig),
-      createSwitchCommand(deps, loadConfig),
-      createTodayCommand(deps, loadConfig, terminal),
-      createSummaryCommand(deps, loadConfig, terminal),
-      createLogCommand(deps, loadConfig),
-      createWeekCommand(deps, loadConfig, terminal),
-      createEditCommand(deps, loadConfig),
-      createRmCommand(deps, confirmOnStdin),
-      createExportCommand(deps, loadConfig),
-      createConfigCommand(configStore, process.env),
-    ],
+    commands: buildCommands({
+      deps,
+      configStore,
+      loadConfig,
+      env: process.env,
+      terminal: resolveTerminal(process.stdout),
+      confirm: confirmOnStdin,
+    }),
     noticesBeforeRun: () => overrunNotices(deps.store, loadConfig, deps.now()),
   };
 }
@@ -464,11 +515,12 @@ if (invokedAsEntryPoint()) {
     }
   };
 
+  const errWriter = createLineWriter(process.stderr, reportWriteError);
   const code = await run(process.argv.slice(2), {
     out: createLineWriter(process.stdout, reportWriteError),
-    err: createLineWriter(process.stderr, reportWriteError),
+    err: errWriter,
     version: readVersion,
-    ...buildRuntime(),
+    ...buildRuntime(errWriter),
   });
 
   // `EPIPE` は終了コードを変えない。読み手が先に終わるのは正常な操作であり、

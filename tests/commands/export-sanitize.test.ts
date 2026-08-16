@@ -321,3 +321,73 @@ describe("**記録そのものは変わらない**（DoD）", () => {
     expect(await stored()).toBe(before);
   });
 });
+
+describe("先頭の空白に続く数式（#96・DoD）", () => {
+  // `tock start` も `tock edit` も前後の空白を落とすので、この形はコマンドからは
+  // 作れない。記録のファイルを手で書き換えた場合に相当する状態を store 経由で作る
+  it('**手で編集された `" =1+1"` も `--sanitize` で数式として読まれなくなる**', async () => {
+    await store.append({
+      id: "handmade",
+      start: "2026-08-12T09:00:00.000Z",
+      end: "2026-08-12T10:00:00.000Z",
+      tags: [],
+      note: " =1+1",
+    });
+
+    await createExportCommand(deps(local(12, 18)), defaultConfig).run(
+      ["--format", "csv", "--sanitize"],
+      io,
+    );
+
+    const cell = noteCell(dataLines()[0]);
+    expect(FORMULA_LEAD.test(cell.replace(/^[ \n]+/, ""))).toBe(false);
+    expect(cell).toContain(" =1+1");
+  });
+
+  it("タグの列にも当たる", async () => {
+    await store.append({
+      id: "handmade-tag",
+      start: "2026-08-12T09:00:00.000Z",
+      end: "2026-08-12T10:00:00.000Z",
+      tags: [" =1+1"],
+      note: "作業",
+    });
+
+    await createExportCommand(deps(local(12, 18)), defaultConfig).run(
+      ["--format", "csv", "--sanitize"],
+      io,
+    );
+
+    expect(tagsCell(dataLines()[0]).startsWith("'")).toBe(true);
+  });
+
+  it("実行中の記録でも当たる（境界: 終端のないデータ）", async () => {
+    await store.append({
+      id: "handmade-running",
+      start: "2026-08-12T09:00:00.000Z",
+      tags: [],
+      note: " =1+1",
+    });
+
+    await createExportCommand(deps(local(12, 18)), defaultConfig).run(
+      ["--format", "csv", "--sanitize"],
+      io,
+    );
+
+    expect(noteCell(dataLines()[0]).startsWith("'")).toBe(true);
+  });
+
+  it("**既定（--sanitize なし）では今までどおり素通しする**", async () => {
+    await store.append({
+      id: "handmade-plain",
+      start: "2026-08-12T09:00:00.000Z",
+      end: "2026-08-12T10:00:00.000Z",
+      tags: [],
+      note: " =1+1",
+    });
+
+    await createExportCommand(deps(local(12, 18)), defaultConfig).run(["--format", "csv"], io);
+
+    expect(noteCell(dataLines()[0])).toBe(" =1+1");
+  });
+});

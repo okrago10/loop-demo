@@ -219,10 +219,24 @@ describe("**保存されるデータの形式は変わっていない**（DoD）
   async function storedEntries(): Promise<Record<string, string>[]> {
     const raw = await readFile(file, "utf8");
 
+    // **行の種類は1つではない（#88）。** `append` / `update` は `entry` を持つが、
+    // `switch` は停止と開始を1行にまとめるので `stop` と `start` を持つ。
+    // 拾い漏らすと「保存形式が変わっていない」の検査が空振りになる——実際、
+    // `entry ?? {}` のままだと switch の行が空オブジェクトとして通り抜けていた
     return raw
       .split("\n")
       .filter((line) => line.trim() !== "")
-      .map((line) => (JSON.parse(line) as { entry?: Record<string, string> }).entry ?? {});
+      .flatMap((line) => {
+        const row = JSON.parse(line) as {
+          entry?: Record<string, string>;
+          stop?: Record<string, string>;
+          start?: Record<string, string>;
+        };
+
+        return [row.entry, row.stop, row.start].filter(
+          (found): found is Record<string, string> => found !== undefined,
+        );
+      });
   }
 
   it("start が書く `start` は UTC の ISO 8601 のまま", async () => {

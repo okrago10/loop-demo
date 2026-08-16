@@ -48,16 +48,22 @@ export function csvLine(fields: readonly string[]): string {
  * 数式として読む。**タブと CR も含める**——先頭にあると欄の区切りとして解釈され、
  * 表がずれる（#62 のスコープに挙がっている）。
  *
- * **先頭の空白（スペース・LF）は見ていない。** Excel は先頭の空白を落としてから
- * `=` を数式と見ることがあるので、`" =1+1"` はここを通り抜ける。#62 のスコープが
- * 上の6文字に限られているため、**この版では対象外**（レビューで指摘。抜けと誤読
- * されないよう明記する）。
- *
- * 実際に届く経路は限られる。`tock start` も `tock edit` も**作業名の前後の空白を
- * 落とす**ので、CLI から打った値がこの形になることはない。残るのは
- * `entries.jsonl` を手で書き換えた場合で、そちらは #96 で扱う。
+ * **先頭の空白（スペース・LF）は、剥がしてから判定する（#96）。** Excel は先頭の
+ * 空白を落としてから `=` を数式と見ることがあるので、`" =1+1"` も無害化の対象になる。
+ * この形は CLI からは作れない（`tock start` も `tock edit` も前後の空白を落とす）が、
+ * `entries.jsonl` を手で書き換えた場合に届く。
  */
 const FORMULA_LEAD = /^[=+\-@\t\r]/;
+
+/**
+ * 判定の前に剥がす、先頭の空白（スペース・LF）。
+ *
+ * **`FORMULA_LEAD` を `^\s*[...]` に広げる形は採らない**（#93 のレビュー）。それだと
+ * 「空白自体を無害化の対象にする」話と混ざり、タブ・CR を `FORMULA_LEAD` に単独で
+ * 入れている理由（先頭にあると欄がずれる）が読めなくなる。タブ・CR をこちらに
+ * 入れないのも同じ理由——あれは剥がすものではなく、それ自体が危険な先頭文字である。
+ */
+const LEADING_WHITESPACE = /^[ \n]+/;
 
 /**
  * 数式として読まれないように接頭辞を足す。
@@ -74,5 +80,8 @@ const FORMULA_LEAD = /^[=+\-@\t\r]/;
  * 記録なのかが読めなくなる。
  */
 export function sanitizeCsvValue(value: string): string {
-  return FORMULA_LEAD.test(value) ? `'${value}` : value;
+  // 剥がすのは判定のためだけ。**接頭辞は元の値の先頭に足し、空白も含めて何も削らない**
+  const withoutLead = value.replace(LEADING_WHITESPACE, "");
+
+  return FORMULA_LEAD.test(withoutLead) ? `'${value}` : value;
 }

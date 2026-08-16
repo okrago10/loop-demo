@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import type { Entry } from "../domain/entry.js";
+import { type Entry, isStoredTimestamp } from "../domain/entry.js";
 import { overlapsPeriod } from "../domain/period.js";
 import { DEFAULT_LOCK_OPTIONS, type LockOptions, withLock } from "./lock.js";
 import type { Store, StoreRange } from "./store.js";
@@ -22,7 +22,10 @@ import type { Store, StoreRange } from "./store.js";
 type StoreRecord =
   | { readonly op: "append"; readonly entry: Entry }
   | { readonly op: "update"; readonly entry: Entry }
-  | { readonly op: "delete"; readonly id: string };
+  | { readonly op: "delete"; readonly id: string }
+  // 切り替え（#88）。停止の確定と次の開始を1行で表す。2行に分けると、その間で
+  // プロセスが落ちたときに「停止済み・新規なし」の中間状態がファイルに残る
+  | { readonly op: "switch"; readonly stop: Entry; readonly start: Entry };
 
 /**
  * いまの版が書く保存形式のバージョン（#10）。
@@ -30,10 +33,15 @@ type StoreRecord =
  * **フィールドを増やしたときに、古い記録が読めなくなることを防ぐための番号。**
  * 形を変えたら 1 つ上げ、`migrate` に前の形からの移し方を足す。
  *
+ * - **2**: `switch` の記録を追加（#88）。停止と開始を1行で表す。バージョン 1 しか
+ *   知らない版がこの行を読むと**黙って飛ばしてしまう**（切り替えた記録が消えたように
+ *   見える）ため、番号を上げて古い版が「新しい版で開いてください」と止まるようにする
+ * - **1**: 最初の形（`append` / `update` / `delete` が各1行）
+ *
  * **バージョンを持たない行は 1 として読む。** この仕組みを入れる前に書かれた
  * `~/.tock/entries.jsonl` はすべてその形で、読めなくすると「更新したら記録が消えた」になる。
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /**
  * 行に書かれたバージョン。無ければ 1（この仕組みより前に書かれたもの）。
@@ -58,7 +66,9 @@ function versionOf(raw: Record<string, unknown>): number | undefined {
  */
 function migrate(raw: Record<string, unknown>, version: number): Record<string, unknown> {
   switch (version) {
-    case 1: {
+    case 1:
+    case 2: {
+      // 2 は 1 に `switch` の行を足しただけで、既存の行の形は変わっていない
       return raw;
     }
     default: {
@@ -96,19 +106,18 @@ function asNonEmptyString(value: unknown): string | undefined {
 }
 
 /**
- * 日時として読めるかを確かめる。
+ * 日時として読めるかを確かめる。**基準は書き込み時（`createEntry`）と同じ**（#85）。
  *
- * **`createEntry` より基準は緩い。** あちらはタイムゾーン付き ISO 8601 であることと、
- * 暦としてその日が実在することまで見るが、ここは `Date.parse` が通るかだけを見る。
- * つまり手で編集してタイムゾーンなしの日時を書いた行は、書き込み時より甘い基準で
- * 通過する。
+ * 以前は `Date.parse` が通るかだけを見ており、`tock start --at` なら弾かれる値
+ * （タイムゾーンなし・実在しない日・`T24:00:00`）が手で編集したファイルからは
+ * 通っていた。規則そのものは `domain/entry.ts` の `isStoredTimestamp` に1つだけ置き、
+ * ここは呼ぶだけにする——判定を複製すると片方だけ直したときに食い違う。
  *
- * ここでの役目は「壊れて読めない行を落とす」ことに限る。**書き込み時と同じ厳密さに
- * 揃えるかは #85 の担当範囲**（#10 で形のバージョンは入れたが、値の妥当性は別の話）。
+ * 値は正規化せずそのまま返す。読み込みは記録を書き換えない。
  */
 function asTimestamp(value: unknown): string | undefined {
   const text = asNonEmptyString(value);
-  if (text === undefined || Number.isNaN(Date.parse(text))) {
+  if (text === undefined || !isStoredTimestamp(text)) {
     return undefined;
   }
 
@@ -222,47 +231,76 @@ function parseLine(line: string, filePath: string): StoreRecord | undefined {
     return entry === undefined ? undefined : { op, entry };
   }
 
+  if (op === "switch") {
+    // **片方でも壊れていれば行ごと飛ばす。** 半分だけ適用すると、この行が
+    // 避けたい中間状態（停止だけ・開始だけ）を読み出しの側が作ることになる
+    const stop = asEntry(migrated["stop"]);
+    const start = asEntry(migrated["start"]);
+    if (stop === undefined || start === undefined || stop.id === start.id) {
+      return undefined;
+    }
+
+    return { op: "switch", stop, start };
+  }
+
   return undefined;
 }
 
 /**
  * ファイルの内容を JSONL として読み、現在の状態に畳み込む。
  *
- * **読めない行は飛ばす。** 1 行の破損で全記録が読めなくなるほうが損失が大きい。
- * 飛ばしたことを利用者に伝えるかどうかは #85 の担当範囲（いまは黙って飛ばす）。
+ * **読めない行は飛ばすが、飛ばした行数を数えて返す（#85・案2）。** 1 行の破損で
+ * 全記録が読めなくなるほうが損失は大きい。しかし黙って飛ばすと、手で編集して壊した
+ * 記録が消えたことに利用者が気づけない。件数の通知は呼び出し側（`onSkippedLines`）が
+ * 受け持つ。
+ *
+ * **空行は「壊れた行」に数えない。** 末尾の改行で必ず1つ空要素ができるため、
+ * 数えると壊れていないファイルでも誤報になる。
  *
  * **ただし「知らない新しいバージョン」は飛ばさずエラーになる**（`assertReadableVersion`）。
  * そちらは壊れた行ではなく、新しい版が正しく書いた記録だから。
  *
  * 追加順を保つため Map を使う。更新は元の位置に留まる。
  */
-async function readState(filePath: string): Promise<Map<string, Entry>> {
+async function readState(
+  filePath: string,
+): Promise<{ state: Map<string, Entry>; skippedLines: number }> {
   let raw: string;
   try {
     raw = await readFile(filePath, "utf8");
   } catch (error) {
     if (isNotFound(error)) {
       // ファイルが無い状態は「まだ記録がない」と同じ。読み出しでは作らない
-      return new Map();
+      return { state: new Map(), skippedLines: 0 };
     }
     throw error;
   }
 
+  let skippedLines = 0;
   const state = new Map<string, Entry>();
   for (const line of raw.split("\n")) {
+    if (line.trim() === "") {
+      continue;
+    }
+
     const record = parseLine(line, filePath);
     if (record === undefined) {
+      skippedLines += 1;
       continue;
     }
 
     if (record.op === "delete") {
       state.delete(record.id);
+    } else if (record.op === "switch") {
+      // 停止（既存の置き換え）→ 開始（新規）の順。Map なので停止側は元の位置に留まる
+      state.set(record.stop.id, record.stop);
+      state.set(record.start.id, record.start);
     } else {
       state.set(record.entry.id, record.entry);
     }
   }
 
-  return state;
+  return { state, skippedLines };
 }
 
 function isNotFound(error: unknown): boolean {
@@ -285,11 +323,40 @@ async function appendRecord(filePath: string, record: StoreRecord): Promise<void
  * 実行中エントリが2つできて `stop` できなくなる。**読み出しはロックを取らない**——
  * 追記は行単位で守られているので、読み手は壊れた状態を見ない。
  */
+/**
+ * 読めない行を飛ばしたときの通知。`(飛ばした行数, ファイルのパス)` を受け取る。
+ *
+ * 出力先はここで決めない（stderr へ書くのは CLI の縁の責務）。省略すれば従来どおり
+ * 黙って飛ばす——テストの多くは壊れたファイルを扱わないので、必須にしない。
+ */
+export type OnSkippedLines = (count: number, filePath: string) => void;
+
 export function createJsonlStore(
   filePath: string,
   lock: LockOptions = DEFAULT_LOCK_OPTIONS,
+  onSkippedLines?: OnSkippedLines,
 ): Store {
   const lockPath = `${filePath}.lock`;
+
+  /**
+   * 最後に通知した件数。**同じ件数は繰り返し通知しない。**
+   *
+   * 1つのコマンドの中で読み出しは複数回走る（`stop` は判断のために読み、書いてから
+   * また読む）。そのたびに通知すると、同じ壊れた行が1回の操作で何度も報告される。
+   * 件数が変わったとき（読んでいる間にさらに壊れたとき）だけ改めて通知する。
+   */
+  let reportedSkips = 0;
+
+  /** 読み出して、飛ばした行があれば1度だけ通知し、状態を返す。 */
+  const reading = async (): Promise<Map<string, Entry>> => {
+    const { state, skippedLines } = await readState(filePath);
+    if (skippedLines > 0 && skippedLines !== reportedSkips) {
+      reportedSkips = skippedLines;
+      onSkippedLines?.(skippedLines, filePath);
+    }
+
+    return state;
+  };
 
   /**
    * いま自分がロックを握っているか。
@@ -313,7 +380,7 @@ export function createJsonlStore(
   /** 読み出してから書くまでを1つにする。個々の書き込み操作が使う。 */
   const writing = async (write: (state: Map<string, Entry>) => Promise<void>): Promise<void> =>
     exclusively(async () => {
-      await write(await readState(filePath));
+      await write(await reading());
     });
 
   return {
@@ -341,6 +408,20 @@ export function createJsonlStore(
       });
     },
 
+    async stopAndStart(stopped: Entry, started: Entry): Promise<void> {
+      await writing(async (state) => {
+        // 検査は `update` / `append` と同じもの。**書き込みだけが1行になる**
+        if (!state.has(stopped.id)) {
+          throw new Error(`更新対象のエントリが見つかりません: ${stopped.id}`);
+        }
+        if (state.has(started.id)) {
+          throw new Error(`同じ id のエントリが既にあります: ${started.id}`);
+        }
+
+        await appendRecord(filePath, { op: "switch", stop: stopped, start: started });
+      });
+    },
+
     async delete(id: string): Promise<void> {
       await writing(async (state) => {
         if (!state.has(id)) {
@@ -354,7 +435,7 @@ export function createJsonlStore(
     async listAll(): Promise<Entry[]> {
       // 畳み込みの結果をそのまま返す。**絞り込みが無いので範囲の検査も要らない**
       // （`listByRange` が持つ `NaN` や `end < start` の検査は、範囲があってこそのもの）
-      return [...(await readState(filePath)).values()];
+      return [...(await reading()).values()];
     },
 
     async listByRange(range: StoreRange): Promise<Entry[]> {
@@ -367,7 +448,7 @@ export function createJsonlStore(
         throw new Error("範囲の end が start より前です");
       }
 
-      const state = await readState(filePath);
+      const state = await reading();
 
       // 重なりの判定は domain に1つだけ置く（`overlapsPeriod`）。以前はここに同じ規則を
       // 書き写していて、実行中エントリの下限を落とすバグを出している（#40）。
@@ -376,7 +457,7 @@ export function createJsonlStore(
     },
 
     async findRunning(): Promise<Entry | undefined> {
-      const state = await readState(filePath);
+      const state = await reading();
 
       let latest: Entry | undefined;
       for (const entry of state.values()) {

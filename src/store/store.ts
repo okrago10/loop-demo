@@ -49,6 +49,16 @@ export interface Store {
   /** 既存のエントリを同じ id で置き換える。存在しなければ失敗する。 */
   update(entry: Entry): Promise<void>;
 
+  /**
+   * 実行中のエントリを確定し、同時に次のエントリを開始する（#88）。
+   *
+   * **`update` + `append` を続けて呼ぶ形にしない。** 2回の追記の間でプロセスが
+   * 落ちると「前の作業は停止済み・新しい作業は無し」という中間状態がファイルに残り、
+   * 巻き戻しのコードには到達しない。1つの操作として書けば、中間状態そのものが
+   * 存在しなくなる。`stopped` が存在しない・`started` が既にある場合は失敗する。
+   */
+  stopAndStart(stopped: Entry, started: Entry): Promise<void>;
+
   /** エントリを削除する。存在しなければ失敗する。 */
   delete(id: string): Promise<void>;
 
