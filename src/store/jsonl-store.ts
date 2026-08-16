@@ -22,7 +22,10 @@ import type { Store, StoreRange } from "./store.js";
 type StoreRecord =
   | { readonly op: "append"; readonly entry: Entry }
   | { readonly op: "update"; readonly entry: Entry }
-  | { readonly op: "delete"; readonly id: string };
+  | { readonly op: "delete"; readonly id: string }
+  // 切り替え（#88）。停止の確定と次の開始を1行で表す。2行に分けると、その間で
+  // プロセスが落ちたときに「停止済み・新規なし」の中間状態がファイルに残る
+  | { readonly op: "switch"; readonly stop: Entry; readonly start: Entry };
 
 /**
  * いまの版が書く保存形式のバージョン（#10）。
@@ -30,10 +33,15 @@ type StoreRecord =
  * **フィールドを増やしたときに、古い記録が読めなくなることを防ぐための番号。**
  * 形を変えたら 1 つ上げ、`migrate` に前の形からの移し方を足す。
  *
+ * - **2**: `switch` の記録を追加（#88）。停止と開始を1行で表す。バージョン 1 しか
+ *   知らない版がこの行を読むと**黙って飛ばしてしまう**（切り替えた記録が消えたように
+ *   見える）ため、番号を上げて古い版が「新しい版で開いてください」と止まるようにする
+ * - **1**: 最初の形（`append` / `update` / `delete` が各1行）
+ *
  * **バージョンを持たない行は 1 として読む。** この仕組みを入れる前に書かれた
  * `~/.tock/entries.jsonl` はすべてその形で、読めなくすると「更新したら記録が消えた」になる。
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /**
  * 行に書かれたバージョン。無ければ 1（この仕組みより前に書かれたもの）。
@@ -58,7 +66,9 @@ function versionOf(raw: Record<string, unknown>): number | undefined {
  */
 function migrate(raw: Record<string, unknown>, version: number): Record<string, unknown> {
   switch (version) {
-    case 1: {
+    case 1:
+    case 2: {
+      // 2 は 1 に `switch` の行を足しただけで、既存の行の形は変わっていない
       return raw;
     }
     default: {
@@ -221,6 +231,18 @@ function parseLine(line: string, filePath: string): StoreRecord | undefined {
     return entry === undefined ? undefined : { op, entry };
   }
 
+  if (op === "switch") {
+    // **片方でも壊れていれば行ごと飛ばす。** 半分だけ適用すると、この行が
+    // 避けたい中間状態（停止だけ・開始だけ）を読み出しの側が作ることになる
+    const stop = asEntry(migrated["stop"]);
+    const start = asEntry(migrated["start"]);
+    if (stop === undefined || start === undefined || stop.id === start.id) {
+      return undefined;
+    }
+
+    return { op: "switch", stop, start };
+  }
+
   return undefined;
 }
 
@@ -269,6 +291,10 @@ async function readState(
 
     if (record.op === "delete") {
       state.delete(record.id);
+    } else if (record.op === "switch") {
+      // 停止（既存の置き換え）→ 開始（新規）の順。Map なので停止側は元の位置に留まる
+      state.set(record.stop.id, record.stop);
+      state.set(record.start.id, record.start);
     } else {
       state.set(record.entry.id, record.entry);
     }
@@ -379,6 +405,20 @@ export function createJsonlStore(
         }
 
         await appendRecord(filePath, { op: "update", entry });
+      });
+    },
+
+    async stopAndStart(stopped: Entry, started: Entry): Promise<void> {
+      await writing(async (state) => {
+        // 検査は `update` / `append` と同じもの。**書き込みだけが1行になる**
+        if (!state.has(stopped.id)) {
+          throw new Error(`更新対象のエントリが見つかりません: ${stopped.id}`);
+        }
+        if (state.has(started.id)) {
+          throw new Error(`同じ id のエントリが既にあります: ${started.id}`);
+        }
+
+        await appendRecord(filePath, { op: "switch", stop: stopped, start: started });
       });
     },
 
