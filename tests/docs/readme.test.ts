@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -805,5 +805,254 @@ describe("README が検証されている（回帰）", () => {
 
   it("EXIT_OK を期待値の既定にしている", () => {
     expect(EXIT_OK).toBe(0);
+  });
+});
+
+/**
+ * 「今できないこと」の項目と、それが**いまも本当か**を確かめる方法（#104）。
+ *
+ * **README の他の節と違い、ここは散文なので実行例で守れない。** 機能が入るたびに静かに
+ * 古くなり、実際に #45（時刻の表示）・#63（丸め）・#11 と #88（同時書き込み）の3項目が
+ * 事実と違う状態で残っていた。`npm run check` は一度も落ちなかった。
+ *
+ * 既存の検査は「README に書いてあるが実装に無い」向きだけを見ている。**逆向き**
+ * ——「実装にあるのに『できない』と書いてある」——を見るのがこの一式。
+ */
+interface Limitation {
+  /** 失敗したときに何の話か分かる名前。 */
+  readonly label: string;
+  /** README の項目を見分ける手がかり。 */
+  readonly matches: RegExp;
+}
+
+const LIMITATIONS: readonly Limitation[] = [
+  { label: "時刻の表示が保存形式のまま", matches: /時刻の表示|ISO 8601 の UTC のまま/ },
+  { label: "記録を別の日へ移せない", matches: /日付は変えられない|別の日へ記録を/ },
+  { label: "同時に書くと記録が壊れる", matches: /同時に複数のプロセス|同時に打刻/ },
+  { label: "集計に丸めが適用されない", matches: /丸め.*適用されない/ },
+];
+
+/** 「今できないこと」に並ぶ項目を取り出す。 */
+function limitationBullets(text: string): string[] | undefined {
+  const section = sections(text).find((found) => found.heading === "今できないこと");
+  if (section === undefined) {
+    return undefined;
+  }
+
+  return section.lines.filter((line) => line.startsWith("- ")).map((line) => line.trim());
+}
+
+/**
+ * README の記述と実際の挙動の食い違いを列挙する。**両方向を見る。**
+ *
+ * `holds` は「その制約がいまも本当か」。実際にコマンドを叩いて決める（下の `probeLimitations`）。
+ * 合成した入力でも呼べるように、判定と探りを分けてある。
+ */
+function limitationProblems(text: string, holds: ReadonlyMap<string, boolean>): string[] {
+  const bullets = limitationBullets(text);
+  if (bullets === undefined) {
+    return ["「今できないこと」の節が無い"];
+  }
+  if (bullets.length === 0) {
+    return ["「今できないこと」に項目が1つも無い（検査対象ゼロ）"];
+  }
+
+  const problems: string[] = [];
+
+  for (const bullet of bullets) {
+    if (!LIMITATIONS.some((limitation) => limitation.matches.test(bullet))) {
+      problems.push(`登録されていない項目がある（確かめる方法が無い）: ${bullet}`);
+    }
+  }
+
+  for (const limitation of LIMITATIONS) {
+    const present = bullets.some((bullet) => limitation.matches.test(bullet));
+    const stillTrue = holds.get(limitation.label);
+
+    if (stillTrue === undefined) {
+      problems.push(`確かめる方法が登録されていない: ${limitation.label}`);
+      continue;
+    }
+    if (stillTrue && !present) {
+      problems.push(`まだできないのに書かれていない: ${limitation.label}`);
+    }
+    if (!stillTrue && present) {
+      problems.push(`できるようになったのに「できない」と書かれている: ${limitation.label}`);
+    }
+  }
+
+  return problems;
+}
+
+/** 一時ディレクトリを1つ使って、渡した処理を走らせる。 */
+async function inTempDir<T>(body: (dir: string) => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), "tock-limits-"));
+  try {
+    return await body(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/** 名前でコマンドを引く。 */
+function commandNamed(registry: Registry, name: string): Command {
+  const found = registry.commands.find((command) => command.name === name);
+  if (found === undefined) {
+    throw new Error(`コマンドが見つかりません: ${name}`);
+  }
+
+  return found;
+}
+
+/**
+ * 4つの制約が**いまも本当か**を、実際に叩いて確かめる。
+ *
+ * ソースを読んで判断しない。#102 で外したのと同じ理由で、書き方を変えただけで
+ * 結果が変わる検査にしないため。
+ */
+async function probeLimitations(): Promise<Map<string, boolean>> {
+  const holds = new Map<string, boolean>();
+
+  // 1. 時刻の表示が保存形式（ISO 8601 の UTC）のままか
+  await inTempDir(async (dir) => {
+    const lines: string[] = [];
+    const registry = buildRegistry(dir, steppingClock(LATE_IN_DAY));
+    await commandNamed(registry, "start").run(["表示の確認"], {
+      out: (line) => lines.push(line),
+      err: () => undefined,
+    });
+    const shown = lines.find((line) => line.startsWith("開始時刻: ")) ?? "";
+    holds.set("時刻の表示が保存形式のまま", /\d{4}-\d{2}-\d{2}T.*Z/.test(shown));
+  });
+
+  // 2. 記録を別の日へ移せるか（日付を渡す手段があるか）
+  await inTempDir(async (dir) => {
+    const registry = buildRegistry(dir, steppingClock(LATE_IN_DAY));
+    const io = { out: () => undefined, err: () => undefined };
+    await commandNamed(registry, "start").run(["日付の確認"], io);
+    const running = await registry.store.findRunning();
+    const rejected = await Promise.resolve(
+      commandNamed(registry, "edit").run([running?.id ?? "x", "--date", "2026-08-10"], io),
+    ).then(
+      () => false,
+      () => true,
+    );
+    holds.set("記録を別の日へ移せない", rejected);
+  });
+
+  // 3. 同時に書くと壊れるか。**同じファイルへ2つの store から同時に start する**
+  await inTempDir(async (dir) => {
+    const io = { out: () => undefined, err: () => undefined };
+    const settled = await Promise.allSettled(
+      ["A", "B"].map((tag) =>
+        commandNamed(buildRegistry(dir, steppingClock(LATE_IN_DAY)), "start").run([tag], io),
+      ),
+    );
+    const succeeded = settled.filter((result) => result.status === "fulfilled").length;
+    // 排他が効いていれば片方だけ通る。2つとも通るなら実行中が2つできている
+    holds.set("同時に書くと記録が壊れる", succeeded !== 1);
+  });
+
+  // 4. 集計に丸めが適用されるか
+  await inTempDir(async (dir) => {
+    const io = { out: () => undefined, err: () => undefined };
+    const registry = buildRegistry(dir, steppingClock(LATE_IN_DAY));
+    await commandNamed(registry, "start").run(["丸めの確認"], io);
+    await commandNamed(registry, "stop").run([], io);
+
+    const totalOf = async (config: Record<string, unknown>): Promise<string> => {
+      await writeFile(join(dir, "config.json"), JSON.stringify(config), "utf8");
+      const lines: string[] = [];
+      await commandNamed(buildRegistry(dir, steppingClock(LATE_IN_DAY)), "today").run([], {
+        out: (line) => lines.push(line),
+        err: () => undefined,
+      });
+
+      return lines.find((line) => line.startsWith("合計")) ?? "";
+    };
+
+    const plain = await totalOf({});
+    const rounded = await totalOf({ rounding: { unitMinutes: 60, mode: "ceil" } });
+    // 丸めが効いていれば合計が変わる
+    holds.set("集計に丸めが適用されない", plain === rounded);
+  });
+
+  return holds;
+}
+
+describe("「今できないこと」が実態と合っている（DoD）", () => {
+  it("**実装済みの機能が「できない」と書かれていない**", async () => {
+    expect(limitationProblems(markdown, await probeLimitations())).toEqual([]);
+  });
+
+  it("項目が1つ以上ある（検査対象ゼロで合格しない）", () => {
+    expect(limitationBullets(markdown)?.length ?? 0).toBeGreaterThan(0);
+  });
+
+  it("**まだできないことは、消さずに残っている**", async () => {
+    const holds = await probeLimitations();
+    const bullets = limitationBullets(markdown) ?? [];
+
+    for (const limitation of LIMITATIONS) {
+      if (holds.get(limitation.label) === true) {
+        expect(bullets.some((bullet) => limitation.matches.test(bullet))).toBe(true);
+      }
+    }
+  });
+});
+
+/** 検査だけのための最小の README。節の中身を差し替えて境界を作る。 */
+function withSection(body: string): string {
+  return `## 今できないこと\n\n${body}\n`;
+}
+
+describe("「今できないこと」の検査（境界）", () => {
+  const allTrue = new Map(LIMITATIONS.map((limitation) => [limitation.label, true]));
+  const everyBullet = [
+    "- 時刻の表示は ISO 8601 の UTC のまま",
+    "- 日付は変えられない",
+    "- 同時に複数のプロセスから書くと壊れる",
+    "- 集計に丸めは適用されない",
+  ].join("\n");
+
+  it("見出しが無ければ落ちる（境界: 節そのものが消えた）", () => {
+    expect(limitationProblems("## べつの見出し\n\n- なにか\n", allTrue)).toEqual([
+      "「今できないこと」の節が無い",
+    ]);
+  });
+
+  it("項目が0件なら落ちる（境界: 空）", () => {
+    expect(
+      limitationProblems(withSection("書いていない機能は実装されていない。"), allTrue),
+    ).toEqual(["「今できないこと」に項目が1つも無い（検査対象ゼロ）"]);
+  });
+
+  it("すべて本当なら問題なし", () => {
+    expect(limitationProblems(withSection(everyBullet), allTrue)).toEqual([]);
+  });
+
+  it("**1項目だけ古くても落ちる**（まとめてしか見ていない検査にしない）", () => {
+    const holds = new Map(allTrue);
+    holds.set("集計に丸めが適用されない", false);
+
+    expect(limitationProblems(withSection(everyBullet), holds)).toEqual([
+      "できるようになったのに「できない」と書かれている: 集計に丸めが適用されない",
+    ]);
+  });
+
+  it("**まだできないことを消すと落ちる**（全部消せば通る検査にしない）", () => {
+    const bullets = "- 時刻の表示は ISO 8601 の UTC のまま";
+
+    expect(limitationProblems(withSection(bullets), allTrue)).toContain(
+      "まだできないのに書かれていない: 記録を別の日へ移せない",
+    );
+  });
+
+  it("登録されていない項目があれば落ちる（確かめる方法が無い記述を増やさない）", () => {
+    const bullets = `${everyBullet}\n- 未知の制約をここに書く`;
+
+    expect(limitationProblems(withSection(bullets), allTrue)).toEqual([
+      "登録されていない項目がある（確かめる方法が無い）: - 未知の制約をここに書く",
+    ]);
   });
 });
