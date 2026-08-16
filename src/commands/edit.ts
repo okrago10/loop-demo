@@ -1,11 +1,15 @@
 import { type CliIo, type Command, UserError } from "../cli.js";
+import { dayPeriodOf, formatDay } from "../domain/day.js";
 import { applyEdit, type EntryChanges, findOverlapping } from "../domain/edit.js";
 import type { Entry } from "../domain/entry.js";
 import { endedAt, startedAt } from "../domain/entry.js";
+import { durationMs } from "../domain/period.js";
 import { normalizeTag } from "../domain/tag.js";
+import { formatClock } from "../format/time.js";
 import type { LoadConfig } from "../store/config-store.js";
 import {
   type CommandDeps,
+  hasExplicitDate,
   loadWarnedConfig,
   rejectUnknownArgs,
   resolveClockTimeOn,
@@ -36,12 +40,24 @@ import { resolveEntry } from "./lookup.js";
 const USAGE: CommandUsage = {
   positional: "<id>",
   options: [
-    { name: "--start", argument: "HH:MM", summary: "開始時刻を直す（記録の開始日に適用する）" },
-    { name: "--end", argument: "HH:MM", summary: "終了時刻を直す（記録の終了日に適用する）" },
+    {
+      name: "--start",
+      argument: "[YYYY-MM-DD] HH:MM",
+      summary: "開始時刻を直す（日付を省くと記録の開始日）",
+    },
+    {
+      name: "--end",
+      argument: "[YYYY-MM-DD] HH:MM",
+      summary: "終了時刻を直す（日付を省くと記録の終了日）",
+    },
     { name: "--tags", argument: '"a b"', summary: "タグを置き換える（空文字で消す）" },
     { name: "--note", argument: "テキスト", summary: "作業名を置き換える" },
   ],
-  examples: ['tock edit 26d141cc --note "定例会議"', "tock edit 26d141cc --end 10:45"],
+  examples: [
+    'tock edit 26d141cc --note "定例会議"',
+    "tock edit 26d141cc --end 10:45",
+    'tock edit 26d141cc --end "2026-08-14 23:30"',
+  ],
 };
 
 export function createEditCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
@@ -109,6 +125,18 @@ export function createEditCommand(deps: CommandDeps, loadConfig: LoadConfig): Co
 
         const candidate = translate(() => applyEdit(target, changes));
 
+        assertNotAmbiguouslyStretched({
+          target,
+          candidate,
+          now,
+          timeZone: config.timezone,
+          // 日付を書いた指定は利用者の意思なので検査しない
+          bare: [
+            ...(startValue !== undefined && !hasExplicitDate(startValue) ? ["--start"] : []),
+            ...(endValue !== undefined && !hasExplicitDate(endValue) ? ["--end"] : []),
+          ],
+        });
+
         const conflict = findOverlapping(candidate, entries);
         if (conflict !== undefined) {
           throw new UserError(
@@ -129,6 +157,72 @@ export function createEditCommand(deps: CommandDeps, loadConfig: LoadConfig): Co
       io.out(`id: ${shown}`);
     },
   };
+}
+
+/**
+ * **日跨ぎの記録に日付なしで指定して、結果が伸びる場合を弾く（#105・案3）。**
+ *
+ * 日を跨いだ記録では `HH:MM` がどちらの日を指すのか決まらない。`--start` は開始日、
+ * `--end` は終了日に載るという規則はあるが、**利用者が見ているのは `23:00-23:30` という
+ * 表示**で、そこから「この 23:30 は翌日だ」とは読み取れない。実際、2時間の記録を30分に
+ * 縮めるつもりの `--end 23:30` が 24時間30分の記録になっていた。
+ *
+ * **弾くのは伸びる場合だけ。** 縮む指定は利用者の意図と一致していることが多く、
+ * 日付を書かせる理由が弱い。長さが変わらない指定も通す。
+ *
+ * **実行中の記録は長さで比べない。** 終端が無いので基準になる長さがそもそも無く、
+ * 「今まで」と比べると終了時刻を入れる操作はほぼ必ず縮むことになって検査が空振りする。
+ * 日を跨いで実行中のまま（前日 23:00 開始で止め忘れ）なら、曖昧さは同じだけあるので弾く。
+ *
+ * **同じ日に収まる記録は対象外。** そちらは `HH:MM` が一意に決まるので曖昧さが無い。
+ * 伸ばす操作自体は正当で、README の `--end 11:00` の例がそれに当たる。
+ *
+ * 警告ではなくエラーにするのは、**警告では気づけないから**。`修正しました` が stdout に
+ * 出て終了コードも 0 のままなら、壊れた記録はそのまま残る。`--at` が未来の時刻を
+ * 打ち間違いとして弾いている（`args.ts`）のと同じ扱いに揃える。
+ */
+function assertNotAmbiguouslyStretched(input: {
+  readonly target: Entry;
+  readonly candidate: Entry;
+  readonly now: Date;
+  readonly timeZone: string;
+  readonly bare: readonly string[];
+}): void {
+  const { target, candidate, now, timeZone, bare } = input;
+
+  if (bare.length === 0 || !spansDays(target, now, timeZone)) {
+    return;
+  }
+
+  // **終端のある記録は長さで見る。** 縮む指定は意図と一致していることが多いので通す
+  if (endedAt(target) !== undefined && durationMs(candidate, now) <= durationMs(target, now)) {
+    return;
+  }
+
+  const option = bare[0] ?? "--end";
+  // **利用者が指したかった側の日付を添える。** `--end` なら開始日、`--start` なら終了日
+  // ——日跨ぎの記録で `HH:MM` を打つ人は、規則が載せるのと逆の日を意図していることが多い
+  const changed = option === "--start" ? (endedAt(candidate) ?? now) : startedAt(candidate);
+  const clock = option === "--start" ? startedAt(candidate) : (endedAt(candidate) ?? now);
+  const suggestion = `${formatDay(changed, timeZone)} ${formatClock(clock, timeZone)}`;
+
+  throw new UserError(
+    `${bare.join(" と ")} の指定では、この記録がどちらの日を指すのか決まりません` +
+      `（日を跨いでいます）。日付を付けて指定してください（例: ${option} "${suggestion}"）`,
+  );
+}
+
+/**
+ * その記録が暦日を跨いでいるか。実行中は「今」までを見る。
+ *
+ * **実行中も対象にする。** 前日 23:00 に始めて止め忘れた記録は、`--end HH:MM` が
+ * `now` の日に載るので同じ曖昧さを持つ（`endBaseDate` を参照）。
+ */
+function spansDays(entry: Entry, now: Date, timeZone: string): boolean {
+  const from = dayPeriodOf(startedAt(entry), timeZone).start;
+  const to = dayPeriodOf(endedAt(entry) ?? now, timeZone).start;
+
+  return from.getTime() !== to.getTime();
 }
 
 /**

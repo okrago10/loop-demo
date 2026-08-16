@@ -14,6 +14,7 @@ import { DEFAULT_CONFIG } from "../../src/domain/config.js";
 import type { LoadConfig } from "../../src/store/config-store.js";
 import type { Store } from "../../src/store/store.js";
 import { RUNTIME_TZ, testLoadConfig } from "../support/config.js";
+import { formatDay } from "../../src/domain/day.js";
 
 let dir = "";
 let store: Store;
@@ -455,37 +456,60 @@ describe("edit と日跨ぎの記録", () => {
   it("開始時刻は開始日の側に載る", async () => {
     const id = await overnight();
 
+    // **縮む指定を使う。** 日跨ぎの記録に日付なしで指定して伸びる場合は弾かれる（#105）
     await createEditCommand(deps(local(14, 10)), testLoadConfig()).run(
-      [id, "--start", "22:00"],
+      [id, "--start", "23:30"],
       io,
     );
 
-    expect((await byId(id))?.start).toBe(local(13, 22).toISOString());
+    expect((await byId(id))?.start).toBe(local(13, 23, 30).toISOString());
   });
 
   it("開始と終了を同時に直しても、それぞれの日付に載る", async () => {
     const id = await overnight();
 
     await createEditCommand(deps(local(14, 10)), testLoadConfig()).run(
-      [id, "--start", "22:00", "--end", "02:00"],
+      [id, "--start", "23:30", "--end", "00:30"],
       io,
     );
 
     const edited = await byId(id);
 
-    expect(edited?.start).toBe(local(13, 22).toISOString());
-    expect(edited?.end).toBe(local(14, 2).toISOString());
+    // `--start` は開始日（13日）、`--end` は終了日（14日）に載る
+    expect(edited?.start).toBe(local(13, 23, 30).toISOString());
+    expect(edited?.end).toBe(local(14, 0, 30).toISOString());
   });
 
   it("日跨ぎのまま長さが正しく変わる", async () => {
     const id = await overnight();
 
-    await createEditCommand(deps(local(14, 10)), testLoadConfig()).run([id, "--end", "02:30"], io);
+    await createEditCommand(deps(local(14, 10)), testLoadConfig()).run([id, "--end", "00:30"], io);
     out = [];
     await createLogCommand(deps(local(14, 10)), defaultConfig).run([], io);
 
-    // 23:00 → 翌 02:30 は 3h 30m
+    // 23:00 → 翌 00:30 は 1h 30m
+    expect(out[0]).toContain("1h 30m");
+  });
+
+  it("**日付を明示すれば、日跨ぎのまま伸ばせる**（#105）", async () => {
+    const id = await overnight();
+
+    await createEditCommand(deps(local(14, 10)), testLoadConfig()).run(
+      [id, "--end", `${formatDay(local(14, 0), RUNTIME_TZ)} 02:30`],
+      io,
+    );
+    out = [];
+    await createLogCommand(deps(local(14, 10)), defaultConfig).run([], io);
+
     expect(out[0]).toContain("3h 30m");
+  });
+
+  it("**日付なしで伸びる指定は弾く**（#105）", async () => {
+    const id = await overnight();
+
+    await expect(
+      createEditCommand(deps(local(14, 10)), testLoadConfig()).run([id, "--end", "02:30"], io),
+    ).rejects.toThrow(/日を跨いでいます/);
   });
 
   it("終了を開始より前にする編集は日跨ぎでも拒否される（境界）", async () => {
@@ -511,11 +535,16 @@ describe("edit と日跨ぎの実行中エントリ（終端がない）", () =>
     return (await store.listByRange(allTime)).at(-1)?.id ?? "";
   }
 
-  it("--end は now の日付に載る（開始日に載せると直せない）", async () => {
+  // **日付なしの指定は弾かれるようになった（#105）。** 日を跨いで実行中の記録には
+  // 比べる長さが無く、`HH:MM` がどちらの日を指すのかも決まらない。以下は日付を明示する
+  it("翌日の時刻で止められる（日付を明示する）", async () => {
     const id = await runningOvernight();
 
     // 翌朝 08:00 に気づいて、01:00 で止めたことにする
-    await createEditCommand(deps(local(14, 8)), testLoadConfig()).run([id, "--end", "01:00"], io);
+    await createEditCommand(deps(local(14, 8)), testLoadConfig()).run(
+      [id, "--end", `${formatDay(local(14, 0), RUNTIME_TZ)} 01:00`],
+      io,
+    );
 
     expect((await byId(id))?.end).toBe(local(14, 1).toISOString());
   });
@@ -523,16 +552,30 @@ describe("edit と日跨ぎの実行中エントリ（終端がない）", () =>
   it("停止した記録になる", async () => {
     const id = await runningOvernight();
 
-    await createEditCommand(deps(local(14, 8)), testLoadConfig()).run([id, "--end", "01:00"], io);
+    await createEditCommand(deps(local(14, 8)), testLoadConfig()).run(
+      [id, "--end", `${formatDay(local(14, 0), RUNTIME_TZ)} 01:00`],
+      io,
+    );
 
     expect(await store.findRunning()).toBeUndefined();
   });
 
-  it("開始時刻は開始日の側に載ったまま", async () => {
+  it("開始時刻も日付を明示して直せる", async () => {
     const id = await runningOvernight();
 
-    await createEditCommand(deps(local(14, 8)), testLoadConfig()).run([id, "--start", "22:00"], io);
+    await createEditCommand(deps(local(14, 8)), testLoadConfig()).run(
+      [id, "--start", `${formatDay(local(13, 0), RUNTIME_TZ)} 22:00`],
+      io,
+    );
 
     expect((await byId(id))?.start).toBe(local(13, 22).toISOString());
+  });
+
+  it("**日付なしの指定は弾かれる**（どちらの日か決まらない。#105）", async () => {
+    const id = await runningOvernight();
+
+    await expect(
+      createEditCommand(deps(local(14, 8)), testLoadConfig()).run([id, "--end", "01:00"], io),
+    ).rejects.toThrow(/日を跨いでいます/);
   });
 });

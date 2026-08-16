@@ -828,8 +828,8 @@ interface Limitation {
 const LIMITATIONS: readonly Limitation[] = [
   { label: "時刻の表示が保存形式のまま", matches: /時刻の表示|ISO 8601 の UTC のまま/ },
   {
-    label: "記録を別の日へ移せない",
-    matches: /時刻だけを指定する|日付は変えられない|別の日へ記録を/,
+    label: "打刻の `--at` が時刻だけ",
+    matches: /打刻の `--at`|時刻だけを指定する/,
   },
   { label: "同時に書くと記録が壊れる", matches: /同時に複数のプロセス|同時に打刻/ },
   { label: "集計に丸めが適用されない", matches: /丸め.*適用されない/ },
@@ -928,11 +928,14 @@ async function probeLimitations(): Promise<Map<string, boolean>> {
     holds.set("時刻の表示が保存形式のまま", /\d{4}-\d{2}-\d{2}T.*Z/.test(shown));
   });
 
-  // 2. 記録を別の日へ移せるか。**README が名指ししている `--at` / `--start` を見る。**
+  // 2. 打刻の `--at` が時刻だけか。**README が名指ししている経路を見る。**
   //
   // 以前はここで `edit --date` が弾かれることだけを見ていた。**`--date` は存在しない
-  // オプションなので常に弾かれ、`--at` / `--start` が日付を受け付けるようになっても
-  // 真のままになる**（レビューで指摘）。節の文言が名指ししている経路を確かめる。
+  // オプションなので常に弾かれ、`--at` が日付を受け付けるようになっても真のままになる**
+  // （レビューで指摘）。節の文言が名指ししている経路を確かめる。
+  //
+  // **`edit --start` / `--end` は見ない。** #105 で日付を取れるようになったので、
+  // ここで弾かれることを求めると節の文言のほうと食い違う。
   await inTempDir(async (dir) => {
     const registry = buildRegistry(dir, steppingClock(LATE_IN_DAY));
     const io = { out: () => undefined, err: () => undefined };
@@ -942,16 +945,13 @@ async function probeLimitations(): Promise<Map<string, boolean>> {
         () => true,
       );
 
-    const atRejected = await rejects("start", ["日付の確認", "--at", "2026-08-10 09:00"]);
+    const rejected = await Promise.all([
+      rejects("start", ["日付の確認", "--at", "2026-08-10 09:00"]),
+      rejects("switch", ["日付の確認", "--at", "2026-08-10 09:00"]),
+    ]);
 
-    await commandNamed(registry, "start").run(["日付の確認"], io);
-    const id = (await registry.store.findRunning())?.id ?? "x";
-
-    const startRejected = await rejects("edit", [id, "--start", "2026-08-10 09:00"]);
-    const dateRejected = await rejects("edit", [id, "--date", "2026-08-10"]);
-
-    // どれか1つでも通れば、別の日へ移す手段があることになる
-    holds.set("記録を別の日へ移せない", atRejected && startRejected && dateRejected);
+    // どれか1つでも通れば、打刻の時点で別の日を指せることになる
+    holds.set("打刻の `--at` が時刻だけ", rejected.every(Boolean));
   });
 
   // 3. 同時に書くと壊れるか。**同じファイルへ2つの store から同時に start する**
@@ -1024,7 +1024,7 @@ describe("「今できないこと」の検査（境界）", () => {
   const allTrue = new Map(LIMITATIONS.map((limitation) => [limitation.label, true]));
   const everyBullet = [
     "- 時刻の表示は ISO 8601 の UTC のまま",
-    "- 日付は変えられない",
+    "- 打刻の `--at` は時刻だけを指定する",
     "- 同時に複数のプロセスから書くと壊れる",
     "- 集計に丸めは適用されない",
   ].join("\n");
@@ -1058,7 +1058,7 @@ describe("「今できないこと」の検査（境界）", () => {
     const bullets = "- 時刻の表示は ISO 8601 の UTC のまま";
 
     expect(limitationProblems(withSection(bullets), allTrue)).toContain(
-      "まだできないのに書かれていない: 記録を別の日へ移せない",
+      "まだできないのに書かれていない: 打刻の `--at` が時刻だけ",
     );
   });
 

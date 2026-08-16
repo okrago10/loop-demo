@@ -1,6 +1,7 @@
 import { type CliIo, UserError } from "../cli.js";
 import { parseTags } from "../domain/tag.js";
-import { instantOf, wallClockIn } from "../domain/timezone.js";
+import { parseDayPeriod } from "../domain/day.js";
+import { instantOf, type WallClock, wallClockIn } from "../domain/timezone.js";
 import { type CommandUsage, formatUsageBlock } from "../format/help.js";
 import { formatClockSeconds } from "../format/time.js";
 import type { LoadConfig, ResolvedConfig } from "../store/config-store.js";
@@ -22,6 +23,30 @@ export interface CommandDeps {
 
 /** `HH:MM` または `HH:MM:SS`。範囲も式で縛る。 */
 const CLOCK_TIME = /^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/;
+
+/**
+ * `YYYY-MM-DD HH:MM(:SS)`。**日付を明示する形**（#105）。
+ *
+ * 区切りが空白なのは、`tock log` と `status` が別日の時刻をこの形で出すため（#45）。
+ * **画面に出ている表記をそのまま打ち返せる**ことを優先し、`T` 区切りは採らない。
+ *
+ * 日付が暦として実在するかはここでは見ない（`\d{4}-\d{2}-\d{2}` は `2026-02-30` も
+ * 通す）。判定は `domain/day.ts` の `parseDayPeriod` が持っているので、そちらへ渡す。
+ */
+const DATED_TIME = /^(\d{4}-\d{2}-\d{2}) ([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/;
+
+/** 受け付ける書き方。エラーメッセージと使い方の表示で使い回す。 */
+const TIME_FORMS = "HH:MM / HH:MM:SS / YYYY-MM-DD HH:MM";
+
+/**
+ * その指定が**日付を含んでいるか**（#105）。
+ *
+ * 呼び出し側（`edit`）は、日付を書かなかった指定にだけ曖昧さの検査を当てる。
+ * 明示された日付は利用者の意思なので、伸びても縮めても通す。
+ */
+export function hasExplicitDate(value: string): boolean {
+  return DATED_TIME.test(value);
+}
 
 /**
  * 名前付きオプションの値を取り出し、残りを返す。
@@ -127,7 +152,10 @@ export function rejectUnknownArgs(
  * 実行中を理由に拒否されるため、打ち間違いから手詰まりになる）。
  */
 export function resolveClockTime(value: string, now: Date, timeZone: string): Date {
-  return resolveClockTimeOn(value, now, now, "--at", timeZone);
+  // **`--at` は日付を受け付けない（#105 のスコープ外）。** 打刻の場面で別の日を指せると、
+  // 「未来は指定できない」など打刻側の規則をまとめて考え直すことになる。既にある記録を
+  // 直す `edit` だけが日付を取る
+  return resolveTime(value, now, now, "--at", timeZone, false);
 }
 
 /**
@@ -147,15 +175,39 @@ export function resolveClockTimeOn(
   label: string,
   timeZone: string,
 ): Date {
-  const match = CLOCK_TIME.exec(value);
+  return resolveTime(value, onDate, now, label, timeZone, true);
+}
+
+/**
+ * 時刻の解決の実体。**日付を受け付けるかを呼び出し側が決める。**
+ *
+ * `--at`（打刻）と `edit --start` / `--end`（修正）で受け付ける形が違うので、
+ * 同じ組み立てを共有しつつ入口で分ける。
+ */
+function resolveTime(
+  value: string,
+  onDate: Date,
+  now: Date,
+  label: string,
+  timeZone: string,
+  allowDate: boolean,
+): Date {
+  const dated = allowDate ? DATED_TIME.exec(value) : null;
+  const match = dated ?? CLOCK_TIME.exec(value);
   if (match === null) {
-    throw new UserError(`${label} は HH:MM または HH:MM:SS で指定してください: ${value}`);
+    const forms = allowDate ? TIME_FORMS : "HH:MM または HH:MM:SS";
+    throw new UserError(`${label} は ${forms} で指定してください: ${value}`);
   }
 
-  const [, hours, minutes, seconds] = match;
-  // **`onDate` の「そのゾーンでの日付」に時刻を載せる。** `setHours` は実行環境の TZ で
-  // 動くので、設定が別のゾーンだと1日ずれた瞬間を指しうる
-  const day = wallClockIn(onDate, timeZone);
+  // 日付付きなら1つずれる（先頭が日付）。どちらの形でも同じ組み立てに落とす
+  const [, datePart, hours, minutes, seconds] =
+    dated === null ? [undefined, undefined, ...match.slice(1)] : match;
+
+  // **日付を書いた場合はその日、書かなければ `onDate` の「そのゾーンでの日付」に載せる。**
+  // `setHours` は実行環境の TZ で動くので、設定が別のゾーンだと1日ずれた瞬間を指しうる
+  const day =
+    datePart === undefined ? wallClockIn(onDate, timeZone) : parseDayOn(datePart, label, timeZone);
+
   const at = instantOf(
     {
       year: day.year,
@@ -175,6 +227,20 @@ export function resolveClockTimeOn(
   }
 
   return at;
+}
+
+/**
+ * `YYYY-MM-DD` を、そのゾーンの暦日として読む。
+ *
+ * **実在の判定は `domain/day.ts` の `parseDayPeriod` に任せる。** `2026-02-30` のような
+ * 繰り上がりを弾く規則を2箇所に置くと、片方だけ直したときに食い違う（`CLAUDE.md`）。
+ */
+function parseDayOn(value: string, label: string, timeZone: string): WallClock {
+  try {
+    return wallClockIn(parseDayPeriod(value, timeZone).start, timeZone);
+  } catch (error) {
+    throw new UserError(`${label}: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 /**
