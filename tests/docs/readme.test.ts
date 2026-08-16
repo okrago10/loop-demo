@@ -827,7 +827,10 @@ interface Limitation {
 
 const LIMITATIONS: readonly Limitation[] = [
   { label: "時刻の表示が保存形式のまま", matches: /時刻の表示|ISO 8601 の UTC のまま/ },
-  { label: "記録を別の日へ移せない", matches: /日付は変えられない|別の日へ記録を/ },
+  {
+    label: "記録を別の日へ移せない",
+    matches: /時刻だけを指定する|日付は変えられない|別の日へ記録を/,
+  },
   { label: "同時に書くと記録が壊れる", matches: /同時に複数のプロセス|同時に打刻/ },
   { label: "集計に丸めが適用されない", matches: /丸め.*適用されない/ },
 ];
@@ -925,19 +928,30 @@ async function probeLimitations(): Promise<Map<string, boolean>> {
     holds.set("時刻の表示が保存形式のまま", /\d{4}-\d{2}-\d{2}T.*Z/.test(shown));
   });
 
-  // 2. 記録を別の日へ移せるか（日付を渡す手段があるか）
+  // 2. 記録を別の日へ移せるか。**README が名指ししている `--at` / `--start` を見る。**
+  //
+  // 以前はここで `edit --date` が弾かれることだけを見ていた。**`--date` は存在しない
+  // オプションなので常に弾かれ、`--at` / `--start` が日付を受け付けるようになっても
+  // 真のままになる**（レビューで指摘）。節の文言が名指ししている経路を確かめる。
   await inTempDir(async (dir) => {
     const registry = buildRegistry(dir, steppingClock(LATE_IN_DAY));
     const io = { out: () => undefined, err: () => undefined };
+    const rejects = (command: string, argv: readonly string[]): Promise<boolean> =>
+      Promise.resolve(commandNamed(registry, command).run(argv, io)).then(
+        () => false,
+        () => true,
+      );
+
+    const atRejected = await rejects("start", ["日付の確認", "--at", "2026-08-10 09:00"]);
+
     await commandNamed(registry, "start").run(["日付の確認"], io);
-    const running = await registry.store.findRunning();
-    const rejected = await Promise.resolve(
-      commandNamed(registry, "edit").run([running?.id ?? "x", "--date", "2026-08-10"], io),
-    ).then(
-      () => false,
-      () => true,
-    );
-    holds.set("記録を別の日へ移せない", rejected);
+    const id = (await registry.store.findRunning())?.id ?? "x";
+
+    const startRejected = await rejects("edit", [id, "--start", "2026-08-10 09:00"]);
+    const dateRejected = await rejects("edit", [id, "--date", "2026-08-10"]);
+
+    // どれか1つでも通れば、別の日へ移す手段があることになる
+    holds.set("記録を別の日へ移せない", atRejected && startRejected && dateRejected);
   });
 
   // 3. 同時に書くと壊れるか。**同じファイルへ2つの store から同時に start する**
