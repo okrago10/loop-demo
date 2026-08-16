@@ -88,3 +88,44 @@ describe("引用規則と組み合わせても壊れない", () => {
     }
   });
 });
+
+describe("先頭の空白に続く数式も無害化する（#96・DoD）", () => {
+  // Excel は先頭の空白を落としてから `=` を数式と見ることがある（OWASP の CSV Injection）。
+  // 空白を剥がした結果が数式の始まりなら、元の値のまま接頭辞を足す
+  it("**スペースに続く `=` を無害化する**", () => {
+    const sanitized = sanitizeCsvValue(" =1+1");
+
+    expect(sanitized.startsWith("'")).toBe(true);
+  });
+
+  it("**元の文字は削らない**（先頭の空白も含めて残る）", () => {
+    expect(sanitizeCsvValue(" =1+1")).toContain(" =1+1");
+  });
+
+  it("空白が複数個でも当たる", () => {
+    expect(sanitizeCsvValue("   =1+1").startsWith("'")).toBe(true);
+  });
+
+  it("先頭が LF でも当たる", () => {
+    expect(sanitizeCsvValue("\n=1+1").startsWith("'")).toBe(true);
+  });
+
+  it("空白のあとにタブ・CR が来る場合も当たる（境界）", () => {
+    expect(sanitizeCsvValue(" \t=1+1").startsWith("'")).toBe(true);
+    expect(sanitizeCsvValue(" \r=1+1").startsWith("'")).toBe(true);
+  });
+
+  it("**空白のあとに安全な文字が来る値は変えない**", () => {
+    expect(sanitizeCsvValue(" 設計")).toBe(" 設計");
+    expect(sanitizeCsvValue("\nメモ")).toBe("\nメモ");
+  });
+
+  it("空白だけの値は変えない（境界: 空白のみ）", () => {
+    expect(sanitizeCsvValue(" ")).toBe(" ");
+    expect(sanitizeCsvValue("\n")).toBe("\n");
+  });
+
+  it("空文字は空文字のまま（境界: 空）", () => {
+    expect(sanitizeCsvValue("")).toBe("");
+  });
+});
