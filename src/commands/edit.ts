@@ -3,7 +3,14 @@ import { applyEdit, type EntryChanges, findOverlapping } from "../domain/edit.js
 import type { Entry } from "../domain/entry.js";
 import { endedAt, startedAt } from "../domain/entry.js";
 import { normalizeTag } from "../domain/tag.js";
-import { type CommandDeps, rejectUnknownArgs, resolveClockTimeOn, takeOption } from "./args.js";
+import type { LoadConfig } from "../store/config-store.js";
+import {
+  type CommandDeps,
+  loadWarnedConfig,
+  rejectUnknownArgs,
+  resolveClockTimeOn,
+  takeOption,
+} from "./args.js";
 import { shortenId, shortIdLength } from "../domain/entry-id.js";
 import type { CommandUsage } from "../format/help.js";
 import { resolveEntry } from "./lookup.js";
@@ -37,7 +44,7 @@ const USAGE: CommandUsage = {
   examples: ['tock edit 26d141cc --note "定例会議"', "tock edit 26d141cc --end 10:45"],
 };
 
-export function createEditCommand(deps: CommandDeps): Command {
+export function createEditCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
     name: "edit",
     summary: "記録を修正する",
@@ -62,6 +69,10 @@ export function createEditCommand(deps: CommandDeps): Command {
         );
       }
 
+      // **設定を読むのは引数の検査のあと（#64）。** `--start` / `--end` をどのゾーンで
+      // 解釈するかが設定で決まる。打ち間違いのときに設定ファイルの警告を先に出さない
+      const config = await loadWarnedConfig(loadConfig, io);
+
       // **読み出しから書き込みまでを1つの操作にする（#11）。** 別々にすると、重なりの
       // 検査に使った一覧が古くなり、他のプロセスが書いた記録と重なる編集を通してしまう
       const { edited, shown } = await deps.store.transaction(async () => {
@@ -72,10 +83,26 @@ export function createEditCommand(deps: CommandDeps): Command {
         const changes: EntryChanges = {
           ...(startValue === undefined
             ? {}
-            : { start: resolveClockTimeOn(startValue, startedAt(target), now, "--start") }),
+            : {
+                start: resolveClockTimeOn(
+                  startValue,
+                  startedAt(target),
+                  now,
+                  "--start",
+                  config.timezone,
+                ),
+              }),
           ...(endValue === undefined
             ? {}
-            : { end: resolveClockTimeOn(endValue, endBaseDate(target, now), now, "--end") }),
+            : {
+                end: resolveClockTimeOn(
+                  endValue,
+                  endBaseDate(target, now),
+                  now,
+                  "--end",
+                  config.timezone,
+                ),
+              }),
           ...(tagsValue === undefined ? {} : { tags: parseTagList(tagsValue) }),
           ...(noteValue === undefined ? {} : { note: noteValue }),
         };

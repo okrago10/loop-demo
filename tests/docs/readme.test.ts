@@ -22,6 +22,7 @@ import { parsePeriodExpression } from "../../src/domain/period-expression.js";
 import { createJsonConfigStore, loadEffectiveConfig } from "../../src/store/config-store.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
 import type { Store } from "../../src/store/store.js";
+import { RUNTIME_TZ, testLoadConfig } from "../support/config.js";
 import {
   type CodeBlock,
   codeBlocks,
@@ -192,15 +193,15 @@ function buildRegistry(dir: string, now: () => Date): Registry {
   return {
     store,
     commands: [
-      createStartCommand(deps),
-      createStopCommand(deps),
-      createStatusCommand(deps),
-      createSwitchCommand(deps),
+      createStartCommand(deps, testLoadConfig()),
+      createStopCommand(deps, testLoadConfig()),
+      createStatusCommand(deps, loadConfig),
+      createSwitchCommand(deps, testLoadConfig()),
       createTodayCommand(deps, loadConfig),
       createSummaryCommand(deps, loadConfig),
       createLogCommand(deps, loadConfig),
       createWeekCommand(deps, loadConfig),
-      createEditCommand(deps),
+      createEditCommand(deps, testLoadConfig()),
       createRmCommand(deps, refuseConfirm),
       createExportCommand(deps, loadConfig),
       createConfigCommand(configStore, {}),
@@ -538,7 +539,7 @@ describe("実装されていない機能が書かれていない（DoD）", () =
     const rejected: string[] = [];
     for (const value of written) {
       try {
-        parsePeriodExpression(value, LATE_IN_DAY);
+        parsePeriodExpression(value, LATE_IN_DAY, { timeZone: RUNTIME_TZ });
       } catch (error) {
         rejected.push(`${value}: ${error instanceof Error ? error.message : String(error)}`);
       }

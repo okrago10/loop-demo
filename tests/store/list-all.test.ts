@@ -11,6 +11,7 @@ import { DEFAULT_CONFIG } from "../../src/domain/config.js";
 import type { LoadConfig } from "../../src/store/config-store.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
 import type { Store } from "../../src/store/store.js";
+import { RUNTIME_TZ } from "../support/config.js";
 
 /**
  * 全件を返す操作（#57）。
@@ -43,7 +44,8 @@ const io = {
   },
 };
 
-const defaultConfig: LoadConfig = () => Promise.resolve({ config: DEFAULT_CONFIG, warnings: [] });
+const defaultConfig: LoadConfig = () =>
+  Promise.resolve({ config: { ...DEFAULT_CONFIG, timezone: RUNTIME_TZ }, warnings: [] });
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "tock-list-all-"));

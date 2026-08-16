@@ -4,10 +4,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createWeekCommand } from "../../src/commands/week.js";
-import { DEFAULT_CONFIG } from "../../src/domain/config.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
 import type { LoadConfig } from "../../src/store/config-store.js";
 import type { Store } from "../../src/store/store.js";
+import { testLoadConfig } from "../support/config.js";
 
 /**
  * `--offset` のヘルプの文言と実際の符号を揃える（#89）。
@@ -32,7 +32,7 @@ const io = {
   err: (): void => {},
 };
 
-const defaultConfig: LoadConfig = () => Promise.resolve({ config: DEFAULT_CONFIG, warnings: [] });
+const defaultConfig: LoadConfig = testLoadConfig();
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "tock-offset-help-"));

@@ -3,7 +3,8 @@ import { type Entry, startedAt } from "../domain/entry.js";
 import { durationMs } from "../domain/period.js";
 import { formatDuration } from "../format/duration.js";
 import { formatMoment } from "../format/time.js";
-import { type CommandDeps, rejectUnknownArgs, takeFlag } from "./args.js";
+import type { LoadConfig } from "../store/config-store.js";
+import { type CommandDeps, loadWarnedConfig, rejectUnknownArgs, takeFlag } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 import { assertStartNotInFuture } from "./entry-guard.js";
 
@@ -25,7 +26,7 @@ const USAGE: CommandUsage = {
  *
  * 読むだけで何も書かない。
  */
-export function createStatusCommand(deps: CommandDeps): Command {
+export function createStatusCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
     name: "status",
     summary: "実行中の作業を表示する",
@@ -35,6 +36,10 @@ export function createStatusCommand(deps: CommandDeps): Command {
       const { present: short, rest } = takeFlag(argv, "--short");
       rejectUnknownArgs(rest, { command: "status", usage: USAGE });
 
+      // **設定を読むのは表示のゾーンのため（#64）。** `status` は記録を読むだけだが、
+      // 出す時刻は `--at` と同じゾーンでなければ対応が取れない
+      const config = await loadWarnedConfig(loadConfig, io);
+
       const now = deps.now();
       const running = await deps.store.findRunning();
 
@@ -42,10 +47,10 @@ export function createStatusCommand(deps: CommandDeps): Command {
       // 投げるので、そのまま流すと内部エラー（終了コード 2）になり、domain 内部の文言が
       // 利用者に出る。判定と文言は `entry-guard.ts` に1つだけ置いてある（#44）
       if (running !== undefined) {
-        assertStartNotInFuture(running, now);
+        assertStartNotInFuture(running, now, config.timezone);
       }
 
-      const lines = short ? shortLines(running, now) : longLines(running, now);
+      const lines = short ? shortLines(running, now) : longLines(running, now, config.timezone);
 
       for (const line of lines) {
         io.out(line);
@@ -59,7 +64,7 @@ export function createStatusCommand(deps: CommandDeps): Command {
  *
  * タグが無いときにタグ行を出さないのは、空の項目を並べても情報が増えないため。
  */
-function longLines(running: Entry | undefined, now: Date): string[] {
+function longLines(running: Entry | undefined, now: Date, timeZone: string): string[] {
   if (running === undefined) {
     return ["実行中の作業はありません。tock start で開始してください"];
   }
@@ -71,7 +76,7 @@ function longLines(running: Entry | undefined, now: Date): string[] {
   }
 
   lines.push(`経過: ${formatDuration(durationMs(running, now))}`);
-  lines.push(`開始: ${formatMoment(startedAt(running), now)}`);
+  lines.push(`開始: ${formatMoment(startedAt(running), now, timeZone)}`);
 
   return lines;
 }

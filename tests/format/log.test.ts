@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { LogRow } from "../../src/domain/log.js";
 import { displayWidth } from "../../src/format/columns.js";
 import { formatLogLines } from "../../src/format/log.js";
+import { RUNTIME_TZ } from "../support/config.js";
 
 /** このファイルは整形そのものを見るので、id を切らない桁数を渡す（短縮は #58 の別テスト）。 */
 const LONG_ENOUGH = 100;
@@ -35,13 +36,14 @@ function row(
 
 describe("formatLogLines", () => {
   it("該当0件のときは「該当なし」を1行出す（エラーにしない）", () => {
-    expect(formatLogLines([], LONG_ENOUGH)).toEqual(["該当する記録はありません"]);
+    expect(formatLogLines([], LONG_ENOUGH, RUNTIME_TZ)).toEqual(["該当する記録はありません"]);
   });
 
   it("各行に編集で使える ID が含まれている", () => {
     const lines = formatLogLines(
       [row("abc123", local(13, 9), local(13, 10), { note: "設計" })],
       LONG_ENOUGH,
+      RUNTIME_TZ,
     );
 
     expect(lines).toHaveLength(1);
@@ -52,6 +54,7 @@ describe("formatLogLines", () => {
     const lines = formatLogLines(
       [row("abc123", local(13, 9), local(13, 10, 30), { tags: ["work"], note: "設計" })],
       LONG_ENOUGH,
+      RUNTIME_TZ,
     );
 
     const line = lines[0] ?? "";
@@ -68,6 +71,7 @@ describe("formatLogLines", () => {
     const lines = formatLogLines(
       [row("a", local(13, 9), local(13, 10), { tags: ["work", "proj/loop-demo"] })],
       LONG_ENOUGH,
+      RUNTIME_TZ,
     );
 
     expect(lines[0]).toContain("#work");
@@ -78,6 +82,7 @@ describe("formatLogLines", () => {
     const lines = formatLogLines(
       [row("a", local(13, 11), undefined, { note: "レビュー" })],
       LONG_ENOUGH,
+      RUNTIME_TZ,
     );
 
     expect(lines[0]).toContain("実行中");
@@ -88,6 +93,7 @@ describe("formatLogLines", () => {
     const lines = formatLogLines(
       [row("a", local(13, 9), local(13, 10), { tags: ["work"] })],
       LONG_ENOUGH,
+      RUNTIME_TZ,
     );
 
     expect(lines[0]).toContain("#work");
@@ -95,7 +101,7 @@ describe("formatLogLines", () => {
   });
 
   it("タグも作業名も無くても行が壊れない（境界）", () => {
-    const lines = formatLogLines([row("a", local(13, 9), local(13, 10))], LONG_ENOUGH);
+    const lines = formatLogLines([row("a", local(13, 9), local(13, 10))], LONG_ENOUGH, RUNTIME_TZ);
 
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain("a");
@@ -103,7 +109,7 @@ describe("formatLogLines", () => {
   });
 
   it("長さ 0 の記録も 0s として1行出す（境界）", () => {
-    const lines = formatLogLines([row("a", local(13, 9), local(13, 9))], LONG_ENOUGH);
+    const lines = formatLogLines([row("a", local(13, 9), local(13, 9))], LONG_ENOUGH, RUNTIME_TZ);
 
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain("0s");
@@ -117,13 +123,14 @@ describe("formatLogLines", () => {
         row("c", local(13, 11), undefined),
       ],
       LONG_ENOUGH,
+      RUNTIME_TZ,
     );
 
     expect(lines).toHaveLength(3);
   });
 
   it("日を跨ぐ記録は開始日と両端の時刻が読める", () => {
-    const lines = formatLogLines([row("a", local(12, 23), local(13, 1))], LONG_ENOUGH);
+    const lines = formatLogLines([row("a", local(12, 23), local(13, 1))], LONG_ENOUGH, RUNTIME_TZ);
 
     expect(lines[0]).toContain("2026-08-12");
     expect(lines[0]).toContain("23:00");
@@ -138,6 +145,7 @@ describe("formatLogLines", () => {
         row("very-long-id-1234", local(13, 10), local(13, 11)),
       ],
       LONG_ENOUGH,
+      RUNTIME_TZ,
     );
 
     const positions = lines.map((line) => line.indexOf("2026-08-13"));
@@ -152,6 +160,7 @@ describe("formatLogLines", () => {
         row("b", local(13, 10), local(13, 11), { note: "review" }),
       ],
       LONG_ENOUGH,
+      RUNTIME_TZ,
     );
 
     // 長さの列は作業名より前にあるので、作業名の幅に影響されない
@@ -169,6 +178,7 @@ describe("formatLogLines", () => {
         row("b", local(13, 11), undefined, { note: "レビュー" }),
       ],
       LONG_ENOUGH,
+      RUNTIME_TZ,
     );
 
     const columns = [columnOf(lines[0] ?? "", "設計"), columnOf(lines[1] ?? "", "レビュー")];

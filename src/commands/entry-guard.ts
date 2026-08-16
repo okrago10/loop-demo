@@ -46,14 +46,15 @@ import { formatMoment } from "../format/time.js";
  * この記録は**日付ごとずれている場合がある**ので、`formatMoment` が別日と判定して
  * 日付を付けてくれることにも意味がある。
  */
-export function assertStartNotInFuture(entry: Entry, now: Date): void {
+export function assertStartNotInFuture(entry: Entry, now: Date, timeZone: string): void {
   const start = startedAt(entry);
   if (start.getTime() <= now.getTime()) {
     return;
   }
 
   throw new UserError(
-    `記録の開始時刻が未来です: ${formatMoment(start, now)}（現在は ${formatMoment(now, now)}）。` +
+    `記録の開始時刻が未来です: ${formatMoment(start, now, timeZone)}` +
+      `（現在は ${formatMoment(now, now, timeZone)}）。` +
       `時計がずれていた可能性があります。tock rm ${entry.id} で消してから打ち直してください`,
   );
 }

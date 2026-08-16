@@ -24,8 +24,36 @@ export interface ConfigStore {
   write(config: Config): Promise<void>;
 }
 
+/**
+ * **解決済みの設定。** `timezone` が必ず入っている（#64）。
+ *
+ * `Config.timezone` は「未設定＝実行環境のゾーン」という意味で省略可能だが、その解決は
+ * domain では行えない（実行環境を読むことになる）。読み込みの最後にここで埋めるので、
+ * **コマンドが受け取る時点では必ず値がある。**
+ *
+ * **各コマンドで `?? 実行環境` を書く形（案1）は採らなかった。** 分岐が散ると、書き忘れた
+ * 箇所だけ別のゾーンで動く余地が残る。型で「解決済み」を表せば、渡し忘れは型検査で落ちる。
+ */
+export interface ResolvedConfig extends Config {
+  readonly timezone: string;
+}
+
+export interface ResolvedConfigResult extends ConfigResult {
+  readonly config: ResolvedConfig;
+}
+
 /** 設定の読み出し。コマンドはこれだけを受け取り、どこから来た値かを気にしない。 */
-export type LoadConfig = () => Promise<ConfigResult>;
+export type LoadConfig = () => Promise<ResolvedConfigResult>;
+
+/**
+ * 実行環境のタイムゾーン（IANA 名）。
+ *
+ * **`Intl` に訊く。** `TZ` 環境変数を自前で読むと、設定されていない場合や不正な場合の
+ * 扱いを持つことになる。`Intl` は必ず妥当なゾーン名を返す。
+ */
+export function runtimeTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
 
 /** ファイルが無いことを表すエラーか。 */
 function isNotFound(error: unknown): boolean {
@@ -143,8 +171,15 @@ function mergeKnown(raw: Record<string, unknown>, config: Config): Record<string
 export async function loadEffectiveConfig(
   store: ConfigStore,
   env: Readonly<Record<string, string | undefined>>,
-): Promise<ConfigResult> {
+): Promise<ResolvedConfigResult> {
   // 層を重ね終えてから、組み合わせとして成り立たない設定を警告する。
   // 「ファイルに単位だけ書き、環境変数で丸め方を足す」があるので、途中の段では判定できない
-  return warnIncompleteConfig(overrideFromEnv(await store.read(), env));
+  const result = warnIncompleteConfig(overrideFromEnv(await store.read(), env));
+
+  // **最後に timezone を解決する。** 不正な値は `parseConfigFile` / `overrideFromEnv` が
+  // 既に警告つきで落としているので、ここに来る時点で残っているのは妥当な値か未設定だけ
+  return {
+    config: { ...result.config, timezone: result.config.timezone ?? runtimeTimeZone() },
+    warnings: result.warnings,
+  };
 }

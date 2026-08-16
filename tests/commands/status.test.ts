@@ -10,6 +10,7 @@ import { createStatusCommand } from "../../src/commands/status.js";
 import { createStopCommand } from "../../src/commands/stop.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
 import type { Store } from "../../src/store/store.js";
+import { testLoadConfig } from "../support/config.js";
 
 let dir = "";
 let store: Store;
@@ -51,7 +52,10 @@ function deps(now: Date) {
 
 /** 09:00 に開始した実行中エントリを作る。 */
 async function startAt9(description = "設計 #work"): Promise<void> {
-  await createStartCommand(deps(new Date("2026-08-12T09:00:00Z"))).run([description], io);
+  await createStartCommand(deps(new Date("2026-08-12T09:00:00Z")), testLoadConfig()).run(
+    [description],
+    io,
+  );
   out = [];
 }
 
@@ -59,7 +63,7 @@ describe("status（実行中あり）", () => {
   it("作業名を表示する", async () => {
     await startAt9();
 
-    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z"))).run([], io);
+    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z")), testLoadConfig()).run([], io);
 
     expect(out.join("\n")).toContain("設計");
   });
@@ -67,7 +71,7 @@ describe("status（実行中あり）", () => {
   it("タグを表示する", async () => {
     await startAt9("設計 #work #proj/tock");
 
-    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z"))).run([], io);
+    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z")), testLoadConfig()).run([], io);
 
     const text = out.join("\n");
 
@@ -78,7 +82,7 @@ describe("status（実行中あり）", () => {
   it("経過時間を人間可読な形式で表示する", async () => {
     await startAt9();
 
-    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z"))).run([], io);
+    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z")), testLoadConfig()).run([], io);
 
     expect(out.join("\n")).toContain("1h 23m");
   });
@@ -88,7 +92,7 @@ describe("status（実行中あり）", () => {
     // **期待値を壁時計から組み立てる**——`09:00:00` と直書きすると UTC でしか通らない
     await startAt9();
 
-    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z"))).run([], io);
+    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z")), testLoadConfig()).run([], io);
 
     const startedAt = new Date("2026-08-12T09:00:00Z");
     const clock = [startedAt.getHours(), startedAt.getMinutes(), startedAt.getSeconds()]
@@ -102,7 +106,7 @@ describe("status（実行中あり）", () => {
   it("stdout に出て stderr は空、終了コードは 0 相当（例外を投げない）", async () => {
     await startAt9();
 
-    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z"))).run([], io);
+    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z")), testLoadConfig()).run([], io);
 
     expect(out.length).toBeGreaterThan(0);
     expect(err).toEqual([]);
@@ -111,7 +115,7 @@ describe("status（実行中あり）", () => {
   it("タグが無ければタグ行を出さない", async () => {
     await startAt9("設計");
 
-    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z"))).run([], io);
+    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z")), testLoadConfig()).run([], io);
 
     expect(out.join("\n")).not.toContain("タグ");
   });
@@ -119,7 +123,7 @@ describe("status（実行中あり）", () => {
   it("作業名が無くてもタグだけで表示できる", async () => {
     await startAt9("#work");
 
-    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z"))).run([], io);
+    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z")), testLoadConfig()).run([], io);
 
     const text = out.join("\n");
 
@@ -130,7 +134,7 @@ describe("status（実行中あり）", () => {
   it("開始直後（経過 0）でも表示できる（境界）", async () => {
     await startAt9();
 
-    await createStatusCommand(deps(new Date("2026-08-12T09:00:00Z"))).run([], io);
+    await createStatusCommand(deps(new Date("2026-08-12T09:00:00Z")), testLoadConfig()).run([], io);
 
     expect(out.join("\n")).toContain("0s");
   });
@@ -138,7 +142,7 @@ describe("status（実行中あり）", () => {
   it("状態を変えない（表示しても実行中のまま）", async () => {
     await startAt9();
 
-    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z"))).run([], io);
+    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z")), testLoadConfig()).run([], io);
 
     expect(await store.findRunning()).toBeDefined();
   });
@@ -147,14 +151,14 @@ describe("status（実行中あり）", () => {
 describe("status（実行中なし）", () => {
   it("実行中が無いことを表示し、例外を投げない（終了コード 0）", async () => {
     await expect(
-      createStatusCommand(deps(new Date("2026-08-12T10:00:00Z"))).run([], io),
+      createStatusCommand(deps(new Date("2026-08-12T10:00:00Z")), testLoadConfig()).run([], io),
     ).resolves.toBeUndefined();
 
     expect(out.join("\n")).toContain("実行中の作業はありません");
   });
 
   it("記録が1件もなくてもエラーにしない（境界）", async () => {
-    await createStatusCommand(deps(new Date("2026-08-12T10:00:00Z"))).run([], io);
+    await createStatusCommand(deps(new Date("2026-08-12T10:00:00Z")), testLoadConfig()).run([], io);
 
     expect(err).toEqual([]);
     expect(out.length).toBeGreaterThan(0);
@@ -162,10 +166,10 @@ describe("status（実行中なし）", () => {
 
   it("停止したあとは実行中なしになる", async () => {
     await startAt9();
-    await createStopCommand(deps(new Date("2026-08-12T10:00:00Z"))).run([], io);
+    await createStopCommand(deps(new Date("2026-08-12T10:00:00Z")), testLoadConfig()).run([], io);
     out = [];
 
-    await createStatusCommand(deps(new Date("2026-08-12T11:00:00Z"))).run([], io);
+    await createStatusCommand(deps(new Date("2026-08-12T11:00:00Z")), testLoadConfig()).run([], io);
 
     expect(out.join("\n")).toContain("実行中の作業はありません");
   });
@@ -175,7 +179,10 @@ describe("status --short", () => {
   it("出力は1行だけ", async () => {
     await startAt9();
 
-    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z"))).run(["--short"], io);
+    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z")), testLoadConfig()).run(
+      ["--short"],
+      io,
+    );
 
     expect(out).toHaveLength(1);
   });
@@ -183,7 +190,10 @@ describe("status --short", () => {
   it("形式は `作業名 #タグ 経過時間` で固定", async () => {
     await startAt9("設計 #work");
 
-    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z"))).run(["--short"], io);
+    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z")), testLoadConfig()).run(
+      ["--short"],
+      io,
+    );
 
     expect(out[0]).toBe("設計 #work 1h 23m");
   });
@@ -191,7 +201,10 @@ describe("status --short", () => {
   it("タグが複数あれば空白区切りで並ぶ", async () => {
     await startAt9("設計 #work #proj/tock");
 
-    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z"))).run(["--short"], io);
+    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z")), testLoadConfig()).run(
+      ["--short"],
+      io,
+    );
 
     expect(out[0]).toBe("設計 #work #proj/tock 1h 23m");
   });
@@ -199,7 +212,10 @@ describe("status --short", () => {
   it("タグが無ければ作業名と経過時間だけ", async () => {
     await startAt9("設計");
 
-    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z"))).run(["--short"], io);
+    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z")), testLoadConfig()).run(
+      ["--short"],
+      io,
+    );
 
     expect(out[0]).toBe("設計 1h 23m");
   });
@@ -207,29 +223,41 @@ describe("status --short", () => {
   it("作業名が無ければタグと経過時間だけ", async () => {
     await startAt9("#work");
 
-    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z"))).run(["--short"], io);
+    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z")), testLoadConfig()).run(
+      ["--short"],
+      io,
+    );
 
     expect(out[0]).toBe("#work 1h 23m");
   });
 
   it("作業名もタグも無ければ経過時間だけ（境界）", async () => {
-    await createStartCommand(deps(new Date("2026-08-12T09:00:00Z"))).run([], io);
+    await createStartCommand(deps(new Date("2026-08-12T09:00:00Z")), testLoadConfig()).run([], io);
     out = [];
 
-    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z"))).run(["--short"], io);
+    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z")), testLoadConfig()).run(
+      ["--short"],
+      io,
+    );
 
     expect(out[0]).toBe("1h 23m");
   });
 
   it("実行中が無ければ `-` の1行（プロンプトが崩れないように必ず1行出す）", async () => {
-    await createStatusCommand(deps(new Date("2026-08-12T10:00:00Z"))).run(["--short"], io);
+    await createStatusCommand(deps(new Date("2026-08-12T10:00:00Z")), testLoadConfig()).run(
+      ["--short"],
+      io,
+    );
 
     expect(out).toEqual(["-"]);
   });
 
   it("実行中が無くても例外を投げない（終了コード 0）", async () => {
     await expect(
-      createStatusCommand(deps(new Date("2026-08-12T10:00:00Z"))).run(["--short"], io),
+      createStatusCommand(deps(new Date("2026-08-12T10:00:00Z")), testLoadConfig()).run(
+        ["--short"],
+        io,
+      ),
     ).resolves.toBeUndefined();
   });
 });
@@ -244,14 +272,17 @@ describe("status の引数", () => {
     await startAt9();
 
     await expect(
-      createStatusCommand(deps(new Date("2026-08-12T10:23:00Z"))).run([token], io),
+      createStatusCommand(deps(new Date("2026-08-12T10:23:00Z")), testLoadConfig()).run(
+        [token],
+        io,
+      ),
     ).rejects.toThrow(UserError);
   });
 
   it("--short を2回書いても通る", async () => {
     await startAt9("設計");
 
-    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z"))).run(
+    await createStatusCommand(deps(new Date("2026-08-12T10:23:00Z")), testLoadConfig()).run(
       ["--short", "--short"],
       io,
     );
@@ -269,7 +300,7 @@ describe("status の経過時間は注入した現在時刻で決まる", () => 
   ])("%s 後なら %s と表示する", async (_label, now, expected) => {
     await startAt9("設計");
 
-    await createStatusCommand(deps(new Date(now))).run(["--short"], io);
+    await createStatusCommand(deps(new Date(now)), testLoadConfig()).run(["--short"], io);
 
     expect(out[0]).toBe(`設計 ${expected}`);
   });
@@ -298,7 +329,9 @@ describe("開始時刻が未来の記録（DoD）", () => {
   it("status は UserError（終了コード 1）になる", async () => {
     await saveFutureRunning();
 
-    await expect(createStatusCommand(deps(NOW)).run([], io)).rejects.toThrow(UserError);
+    await expect(createStatusCommand(deps(NOW), testLoadConfig()).run([], io)).rejects.toThrow(
+      UserError,
+    );
   });
 
   it("メッセージに記録の開始時刻と「未来」であることが含まれる", async () => {
@@ -318,7 +351,7 @@ describe("開始時刻が未来の記録（DoD）", () => {
 
     let message = "";
     try {
-      await createStatusCommand(deps(NOW)).run([], io);
+      await createStatusCommand(deps(NOW), testLoadConfig()).run([], io);
     } catch (error) {
       message = error instanceof Error ? error.message : String(error);
     }
@@ -334,7 +367,7 @@ describe("開始時刻が未来の記録（DoD）", () => {
 
     let failure: unknown;
     try {
-      await createStatusCommand(deps(NOW)).run(["--short"], io);
+      await createStatusCommand(deps(NOW), testLoadConfig()).run(["--short"], io);
     } catch (error) {
       failure = error;
     }
@@ -347,14 +380,16 @@ describe("開始時刻が未来の記録（DoD）", () => {
   it("失敗しても stdout には何も出さない（途中まで出さない）", async () => {
     await saveFutureRunning();
 
-    await expect(createStatusCommand(deps(NOW)).run([], io)).rejects.toThrow(UserError);
+    await expect(createStatusCommand(deps(NOW), testLoadConfig()).run([], io)).rejects.toThrow(
+      UserError,
+    );
     expect(out).toEqual([]);
   });
 
   it("start == now（同時刻）は正常に 0s と表示される（境界）", async () => {
     await store.append({ id: "same", start: NOW.toISOString(), tags: ["work"], note: "ちょうど" });
 
-    await createStatusCommand(deps(NOW)).run([], io);
+    await createStatusCommand(deps(NOW), testLoadConfig()).run([], io);
 
     expect(out).toContain("経過: 0s");
   });
@@ -362,7 +397,7 @@ describe("開始時刻が未来の記録（DoD）", () => {
   it("start == now は --short でも 0s（境界）", async () => {
     await store.append({ id: "same", start: NOW.toISOString(), tags: ["work"], note: "ちょうど" });
 
-    await createStatusCommand(deps(NOW)).run(["--short"], io);
+    await createStatusCommand(deps(NOW), testLoadConfig()).run(["--short"], io);
 
     expect(out).toEqual(["ちょうど #work 0s"]);
   });
@@ -375,7 +410,7 @@ describe("開始時刻が未来の記録（DoD）", () => {
 
     let message = "";
     try {
-      await createStatusCommand(deps(NOW)).run([], io);
+      await createStatusCommand(deps(NOW), testLoadConfig()).run([], io);
     } catch (error) {
       message = error instanceof Error ? error.message : "";
     }
@@ -388,7 +423,7 @@ describe("開始時刻が未来の記録（DoD）", () => {
     await createRmCommand(deps(NOW), () => Promise.resolve(true)).run(["skewed", "--yes"], io);
 
     out = [];
-    await createStatusCommand(deps(NOW)).run([], io);
+    await createStatusCommand(deps(NOW), testLoadConfig()).run([], io);
     expect(out).toEqual(["実行中の作業はありません。tock start で開始してください"]);
   });
 
@@ -396,6 +431,8 @@ describe("開始時刻が未来の記録（DoD）", () => {
     const oneMsAhead = new Date(NOW.getTime() + 1).toISOString();
     await store.append({ id: "ahead", start: oneMsAhead, tags: [], note: "1ミリ秒未来" });
 
-    await expect(createStatusCommand(deps(NOW)).run([], io)).rejects.toThrow(UserError);
+    await expect(createStatusCommand(deps(NOW), testLoadConfig()).run([], io)).rejects.toThrow(
+      UserError,
+    );
   });
 });

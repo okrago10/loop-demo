@@ -105,7 +105,7 @@ export function createExportCommand(deps: CommandDeps, loadConfig: LoadConfig): 
       // 来るので、解決を待たないと json かどうかが決まらない（#65）
       assertSanitizable(sanitize, format);
 
-      const period = resolvePeriod(periodValue, deps.now(), config.weekStartsOn);
+      const period = resolvePeriod(periodValue, deps.now(), config.weekStartsOn, config.timezone);
 
       // 期間の指定が無ければ全件。**あるときだけ store 側で絞る**——読み込む量が
       // 減るのは範囲があるときだけで、無い場合に広い範囲を作る理由は無い（#57）
@@ -205,6 +205,7 @@ function resolvePeriod(
   value: string | undefined,
   now: Date,
   weekStartsOn: number,
+  timeZone: string,
 ): Period | undefined {
   // 省略は「全期間」。範囲で表さず、絞らないことを値の無さで表す（#57）
   if (value === undefined) {
@@ -212,7 +213,7 @@ function resolvePeriod(
   }
 
   try {
-    return parsePeriodExpression(value, now, { weekStartsOn });
+    return parsePeriodExpression(value, now, { timeZone, weekStartsOn });
   } catch (error) {
     throw new UserError(error instanceof Error ? error.message : String(error));
   }

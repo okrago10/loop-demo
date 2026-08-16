@@ -10,6 +10,7 @@ import { createStopCommand } from "../../src/commands/stop.js";
 import { createJsonConfigStore, loadEffectiveConfig } from "../../src/store/config-store.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
 import type { Store } from "../../src/store/store.js";
+import { testLoadConfig } from "../support/config.js";
 
 /**
  * 既定の出力形式（#65）。
@@ -90,8 +91,8 @@ async function writeConfig(raw: unknown): Promise<void> {
 
 /** 1件記録する。 */
 async function record(description = "設計 #work"): Promise<void> {
-  await createStartCommand(deps(local(12, 9))).run([description], io);
-  await createStopCommand(deps(local(12, 10))).run([], io);
+  await createStartCommand(deps(local(12, 9)), testLoadConfig()).run([description], io);
+  await createStopCommand(deps(local(12, 10)), testLoadConfig()).run([], io);
   out = [];
   err = [];
 }
@@ -169,7 +170,7 @@ describe("設定した形式が `--format` 省略時に使われる（DoD）", (
   });
 
   it("実行中の記録でも設定した形式で出る（境界: 終端のないデータ）", async () => {
-    await createStartCommand(deps(local(12, 9))).run(["設計 #work"], io);
+    await createStartCommand(deps(local(12, 9)), testLoadConfig()).run(["設計 #work"], io);
     out = [];
     await writeConfig({ defaultFormat: "csv" });
 

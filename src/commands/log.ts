@@ -68,7 +68,7 @@ export function createLogCommand(deps: CommandDeps, loadConfig: LoadConfig): Com
         io.err(warning);
       }
 
-      const period = resolvePeriod(periodValue, now, config.weekStartsOn);
+      const period = resolvePeriod(periodValue, now, config.weekStartsOn, config.timezone);
 
       // **期間で絞らずに全件を読む。** 短縮 id の桁数は「保存されている全記録の中で
       // 重複しない長さ」でなければならず、一覧に出る分だけでは決められない
@@ -87,7 +87,7 @@ export function createLogCommand(deps: CommandDeps, loadConfig: LoadConfig): Com
 
       const idLength = shortIdLength(entries.map((entry) => entry.id));
 
-      for (const line of formatLogLines(rows, idLength)) {
+      for (const line of formatLogLines(rows, idLength, config.timezone)) {
         io.out(line);
       }
     },
@@ -104,6 +104,7 @@ function resolvePeriod(
   value: string | undefined,
   now: Date,
   weekStartsOn: number,
+  timeZone: string,
 ): Period | undefined {
   // 省略は「全期間」。範囲で表さず、絞らないことを値の無さで表す（#57）
   if (value === undefined) {
@@ -111,7 +112,7 @@ function resolvePeriod(
   }
 
   try {
-    return parsePeriodExpression(value, now, { weekStartsOn });
+    return parsePeriodExpression(value, now, { timeZone, weekStartsOn });
   } catch (error) {
     throw new UserError(error instanceof Error ? error.message : String(error));
   }

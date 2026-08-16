@@ -8,6 +8,7 @@ import { createStartCommand } from "../../src/commands/start.js";
 import type { Entry } from "../../src/domain/entry.js";
 import { createJsonlStore, SCHEMA_VERSION } from "../../src/store/jsonl-store.js";
 import type { Store } from "../../src/store/store.js";
+import { testLoadConfig } from "../support/config.js";
 
 /**
  * `switch` の停止と開始を1回の追記にする（#88）。
@@ -82,18 +83,18 @@ function entryOf(id: string, start: string, end?: string): Entry {
 
 describe("switch は1回の追記で書かれる（DoD）", () => {
   it("**ファイルに増える行数が1行である**", async () => {
-    await createStartCommand(deps(local(12, 9))).run(["設計 #work"], io);
+    await createStartCommand(deps(local(12, 9)), testLoadConfig()).run(["設計 #work"], io);
     const before = (await lines()).length;
 
-    await createSwitchCommand(deps(local(12, 11))).run(["レビュー #work"], io);
+    await createSwitchCommand(deps(local(12, 11)), testLoadConfig()).run(["レビュー #work"], io);
 
     expect((await lines()).length).toBe(before + 1);
   });
 
   it("その1行で、前の記録は確定し新しい記録が始まっている", async () => {
-    await createStartCommand(deps(local(12, 9))).run(["設計"], io);
+    await createStartCommand(deps(local(12, 9)), testLoadConfig()).run(["設計"], io);
 
-    await createSwitchCommand(deps(local(12, 11))).run(["レビュー"], io);
+    await createSwitchCommand(deps(local(12, 11)), testLoadConfig()).run(["レビュー"], io);
 
     const entries = await store.listAll();
     expect(entries).toHaveLength(2);
@@ -103,9 +104,9 @@ describe("switch は1回の追記で書かれる（DoD）", () => {
   });
 
   it("**新しい形式の行にも保存形式のバージョンが入っている**（DoD）", async () => {
-    await createStartCommand(deps(local(12, 9))).run(["設計"], io);
+    await createStartCommand(deps(local(12, 9)), testLoadConfig()).run(["設計"], io);
 
-    await createSwitchCommand(deps(local(12, 11))).run(["レビュー"], io);
+    await createSwitchCommand(deps(local(12, 11)), testLoadConfig()).run(["レビュー"], io);
 
     const last = JSON.parse((await lines()).at(-1) ?? "{}") as Record<string, unknown>;
     expect(last["v"]).toBe(SCHEMA_VERSION);
@@ -113,7 +114,7 @@ describe("switch は1回の追記で書かれる（DoD）", () => {
   });
 
   it("実行中が無ければ従来どおり1行の append になる（境界: 0件）", async () => {
-    await createSwitchCommand(deps(local(12, 9))).run(["設計"], io);
+    await createSwitchCommand(deps(local(12, 9)), testLoadConfig()).run(["設計"], io);
 
     const all = await lines();
     expect(all).toHaveLength(1);
@@ -121,9 +122,9 @@ describe("switch は1回の追記で書かれる（DoD）", () => {
   });
 
   it("実行中が日を跨いでいても切り替えられる（境界: 日跨ぎ）", async () => {
-    await createStartCommand(deps(local(12, 23))).run(["夜業"], io);
+    await createStartCommand(deps(local(12, 23)), testLoadConfig()).run(["夜業"], io);
 
-    await createSwitchCommand(deps(local(13, 1))).run(["続き"], io);
+    await createSwitchCommand(deps(local(13, 1)), testLoadConfig()).run(["続き"], io);
 
     const entries = await store.listAll();
     expect(entries[0]?.end).toBe(local(13, 1).toISOString());
@@ -131,9 +132,9 @@ describe("switch は1回の追記で書かれる（DoD）", () => {
   });
 
   it("開始と停止が同時刻でも切り替えられる（境界: 同時刻・長さ0）", async () => {
-    await createStartCommand(deps(local(12, 9))).run(["設計"], io);
+    await createStartCommand(deps(local(12, 9)), testLoadConfig()).run(["設計"], io);
 
-    await createSwitchCommand(deps(local(12, 9))).run(["レビュー"], io);
+    await createSwitchCommand(deps(local(12, 9)), testLoadConfig()).run(["レビュー"], io);
 
     const entries = await store.listAll();
     expect(entries[0]?.start).toBe(entries[0]?.end);
@@ -151,7 +152,7 @@ describe("巻き戻しが不要になっている（DoD）", () => {
    * 0行、書けたら完結した1行で、**中間の形がそもそも存在しない。**
    */
   it("**書き込みが失敗しても、ファイルは1行も増えず実行中も変わらない**", async () => {
-    await createStartCommand(deps(local(12, 9))).run(["設計"], io);
+    await createStartCommand(deps(local(12, 9)), testLoadConfig()).run(["設計"], io);
     const before = await lines();
 
     // 開始側の id が既存と衝突する切り替えは、書き込み前の検査で失敗する
@@ -215,7 +216,7 @@ describe("旧形式が読めたまま（DoD）", () => {
     });
     await writeFile(file, `${legacy}\n`, "utf8");
 
-    await createSwitchCommand(deps(local(12, 11))).run(["新しい作業"], io);
+    await createSwitchCommand(deps(local(12, 11)), testLoadConfig()).run(["新しい作業"], io);
 
     const entries = await store.listAll();
     expect(entries).toHaveLength(2);

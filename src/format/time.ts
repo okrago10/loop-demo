@@ -1,11 +1,17 @@
 import { dayPeriodOf, formatDay } from "../domain/day.js";
+import { wallClockIn } from "../domain/timezone.js";
 
 /**
  * 時刻の表示。
  *
- * **利用者の環境のローカルタイムゾーンで表す。** `Entry` は UTC 正規形で時刻を持つが、
+ * **表示するゾーンは呼び出し側が渡す（#64）。** `Entry` は UTC 正規形で時刻を持つが、
  * それをそのまま見せると手元の時計と一致しない。日の境切り（`domain/day.ts`）と
- * `--at` の解釈をローカルで行っているのと同じ方針に揃える。
+ * `--at` の解釈を設定 `timezone` で行っているのと**同じゾーンに揃える。**
+ *
+ * **`Date#getHours()` の類は使わない。** 実行環境のゾーンで読むことになり、
+ * 「`--at` は設定ゾーン・画面は実行環境」という食い違いが型では落ちない形で残る
+ * （#45 と #64 のレビューで指摘された）。壁時計の読み出しは `domain/timezone.ts` に
+ * 一本化してある。
  *
  * `formatClock` は `log`（#16）が一覧の桁を揃えるために使う。`start` / `stop` / `status` /
  * `switch` が1件の時刻を出すときは `formatMoment` を使う（#45）。**用途が違うので分けている**
@@ -13,12 +19,28 @@ import { dayPeriodOf, formatDay } from "../domain/day.js";
  * 数十秒違う2件が同じに見える。
  */
 
-/** 時刻をローカルの `HH:MM` で表す。 */
-export function formatClock(moment: Date): string {
-  const hours = String(moment.getHours()).padStart(2, "0");
-  const minutes = String(moment.getMinutes()).padStart(2, "0");
+/** 2桁ゼロ詰め。壁時計の各項は 0〜59（時は 0〜23）なので桁あふれは起きない。 */
+function pad(value: number): string {
+  return String(value).padStart(2, "0");
+}
 
-  return `${hours}:${minutes}`;
+/** 時刻を指定したゾーンの `HH:MM` で表す。 */
+export function formatClock(moment: Date, timeZone: string): string {
+  const wall = wallClockIn(moment, timeZone);
+
+  return `${pad(wall.hours)}:${pad(wall.minutes)}`;
+}
+
+/**
+ * 時刻を指定したゾーンの `HH:MM:SS` で表す。
+ *
+ * `--at` に未来を指定したときのエラー（`commands/args.ts`）も現在時刻をこの形で出す。
+ * **同じ表し方を2箇所に書かない**——片方だけ直すと、同じ時刻が画面とエラーで違って見える。
+ */
+export function formatClockSeconds(moment: Date, timeZone: string): string {
+  const wall = wallClockIn(moment, timeZone);
+
+  return `${pad(wall.hours)}:${pad(wall.minutes)}:${pad(wall.seconds)}`;
 }
 
 /**
@@ -40,13 +62,15 @@ export function formatClock(moment: Date): string {
  *
  * 保存形式は変えない。`entries.jsonl` は UTC の ISO 8601 のままで、ここは表示だけを扱う。
  */
-export function formatMoment(moment: Date, now: Date): string {
-  const clock = `${formatClock(moment)}:${String(moment.getSeconds()).padStart(2, "0")}`;
+export function formatMoment(moment: Date, now: Date, timeZone: string): string {
+  const clock = formatClockSeconds(moment, timeZone);
 
-  return isSameDay(moment, now) ? clock : `${formatDay(moment)} ${clock}`;
+  return isSameDay(moment, now, timeZone) ? clock : `${formatDay(moment, timeZone)} ${clock}`;
 }
 
-/** ローカルの同じ1日に入るか。境切りの定義は `domain/day.ts` に一本化する。 */
-function isSameDay(left: Date, right: Date): boolean {
-  return dayPeriodOf(left).start.getTime() === dayPeriodOf(right).start.getTime();
+/** そのゾーンの同じ1日に入るか。境切りの定義は `domain/day.ts` に一本化する。 */
+function isSameDay(left: Date, right: Date, timeZone: string): boolean {
+  return (
+    dayPeriodOf(left, timeZone).start.getTime() === dayPeriodOf(right, timeZone).start.getTime()
+  );
 }

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG, roundingRuleOf, withConfigValue } from "../../src/domain/config.js";
 import { createJsonConfigStore, loadEffectiveConfig } from "../../src/store/config-store.js";
 import { resolveConfigPath, resolveStorePath } from "../../src/store/store.js";
+import { RUNTIME_TZ } from "../support/config.js";
 
 let dir = "";
 let path = "";
@@ -59,6 +60,7 @@ describe("設定ファイルの読み込み", () => {
   it("ファイルが無ければ既定値を返し、警告も出さない（境界）", async () => {
     const { config, warnings } = await createJsonConfigStore(path).read();
 
+    // **`timezone` は解決済みで返る（#64・案2）。** 未設定なら実行環境のゾーンが入る
     expect(config).toEqual(DEFAULT_CONFIG);
     expect(warnings).toEqual([]);
   });
@@ -68,6 +70,7 @@ describe("設定ファイルの読み込み", () => {
 
     const { config, warnings } = await createJsonConfigStore(path).read();
 
+    // **`timezone` は解決済みで返る（#64・案2）。** 未設定なら実行環境のゾーンが入る
     expect(config).toEqual(DEFAULT_CONFIG);
     expect(warnings).toHaveLength(1);
   });
@@ -77,6 +80,7 @@ describe("設定ファイルの読み込み", () => {
 
     const { config, warnings } = await createJsonConfigStore(path).read();
 
+    // **`timezone` は解決済みで返る（#64・案2）。** 未設定なら実行環境のゾーンが入る
     expect(config).toEqual(DEFAULT_CONFIG);
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain(path);
@@ -88,6 +92,7 @@ describe("設定ファイルの読み込み", () => {
 
     const { config, warnings } = await createJsonConfigStore(path).read();
 
+    // **`timezone` は解決済みで返る（#64・案2）。** 未設定なら実行環境のゾーンが入る
     expect(config).toEqual(DEFAULT_CONFIG);
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain(path);
@@ -102,6 +107,7 @@ describe("設定ファイルの読み込み", () => {
 
     const { config, warnings } = await createJsonConfigStore(join(dir, "as-dir.json")).read();
 
+    // **`timezone` は解決済みで返る（#64・案2）。** 未設定なら実行環境のゾーンが入る
     expect(config).toEqual(DEFAULT_CONFIG);
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain("as-dir.json");
@@ -121,6 +127,7 @@ describe("設定ファイルの読み込み", () => {
       return;
     }
 
+    // **`timezone` は解決済みで返る（#64・案2）。** 未設定なら実行環境のゾーンが入る
     expect(config).toEqual(DEFAULT_CONFIG);
     expect(warnings[0]).toContain(path);
   });
@@ -187,7 +194,8 @@ describe("loadEffectiveConfig（優先順位・DoD）", () => {
   it("どちらも無ければ既定値になる（境界）", async () => {
     const { config } = await loadEffectiveConfig(createJsonConfigStore(path), {});
 
-    expect(config).toEqual(DEFAULT_CONFIG);
+    // **`timezone` は解決済みで返る（#64・案2）。** 未設定なら実行環境のゾーンが入る
+    expect(config).toEqual({ ...DEFAULT_CONFIG, timezone: RUNTIME_TZ });
   });
 
   it("設定ファイルが壊れていても、環境変数は効く", async () => {
@@ -206,7 +214,11 @@ describe("書き込みが知らないキーを消さない（レビュー指摘�
   it("知らないキーを残したまま、知っているキーだけを更新する", async () => {
     await writeFile(
       path,
-      JSON.stringify({ weekStartsOn: 1, timezone: "Asia/Tokyo", rounding: { unitMinutes: 15 } }),
+      JSON.stringify({
+        weekStartsOn: 1,
+        timezone: "Asia/Tokyo",
+        rounding: { unitMinutes: 15 },
+      }),
       "utf8",
     );
 
@@ -222,13 +234,13 @@ describe("書き込みが知らないキーを消さない（レビュー指摘�
   it("設定項目が増えても、古い版が新しい版のキーを消さない", async () => {
     // #63 / #64 / #65 で足すキーを、この版が知らない状態として置く
     const store = createJsonConfigStore(path);
-    await writeFile(path, JSON.stringify({ timezone: "Asia/Tokyo" }), "utf8");
+    await writeFile(path, JSON.stringify({ locale: "ja-JP" }), "utf8");
 
     await store.write({ weekStartsOn: 6 });
     await store.write({ weekStartsOn: 2 });
 
     expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
-      timezone: "Asia/Tokyo",
+      locale: "ja-JP",
       weekStartsOn: 2,
     });
   });
@@ -238,14 +250,17 @@ describe("書き込みが知らないキーを消さない（レビュー指摘�
 
     await createJsonConfigStore(path).write({ weekStartsOn: 0 });
 
-    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ weekStartsOn: 0 });
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
+      weekStartsOn: 0,
+    });
   });
 
   it("知らないキーは読まない（値は既定のまま）が、警告は「消さない」と伝える", async () => {
-    await writeFile(path, JSON.stringify({ timezone: "Asia/Tokyo" }), "utf8");
+    await writeFile(path, JSON.stringify({ locale: "ja-JP" }), "utf8");
 
     const { config, warnings } = await createJsonConfigStore(path).read();
 
+    // `read()` は**未解決**の設定を返す（timezone を埋めるのは `loadEffectiveConfig`。#64・案2）
     expect(config).toEqual(DEFAULT_CONFIG);
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain("消しません");

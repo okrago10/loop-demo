@@ -15,6 +15,7 @@ import {
   loadEffectiveConfig,
 } from "../../src/store/config-store.js";
 import type { Store } from "../../src/store/store.js";
+import { RUNTIME_TZ, testLoadConfig } from "../support/config.js";
 
 let dir = "";
 let store: Store;
@@ -37,7 +38,8 @@ const io = {
  * このファイルは集計の中身を見るので、設定の層は固定しておく。設定が効くことの検証は
  * `tests/commands/config.test.ts` と、このファイルの「週の開始曜日の優先順位」に置く。
  */
-const defaultConfig: LoadConfig = () => Promise.resolve({ config: DEFAULT_CONFIG, warnings: [] });
+const defaultConfig: LoadConfig = () =>
+  Promise.resolve({ config: { ...DEFAULT_CONFIG, timezone: RUNTIME_TZ }, warnings: [] });
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "tock-week-"));
@@ -72,8 +74,8 @@ function local(day: number, hours = 0, minutes = 0): Date {
 }
 
 async function record(start: Date, end: Date, description: string): Promise<void> {
-  await createStartCommand(deps(start)).run([description], io);
-  await createStopCommand(deps(end)).run([], io);
+  await createStartCommand(deps(start), testLoadConfig()).run([description], io);
+  await createStopCommand(deps(end), testLoadConfig()).run([], io);
   out = [];
 }
 
@@ -153,7 +155,7 @@ describe("week", () => {
   });
 
   it("実行中の記録も数える", async () => {
-    await createStartCommand(deps(local(13, 9))).run(["レビュー #work"], io);
+    await createStartCommand(deps(local(13, 9)), testLoadConfig()).run(["レビュー #work"], io);
     out = [];
 
     await createWeekCommand(deps(NOW), defaultConfig).run([], io);
@@ -167,7 +169,7 @@ describe("week", () => {
   // listByRange が落とす」バグを実際に出しているため、domain 単体だけでは足りない
   it("週より前に始まって、まだ終わっていない記録も数える（境界）", async () => {
     // 前の週の日曜 22:00 に開始して継続中
-    await createStartCommand(deps(local(9, 22))).run(["徹夜 #work"], io);
+    await createStartCommand(deps(local(9, 22)), testLoadConfig()).run(["徹夜 #work"], io);
     out = [];
 
     await createWeekCommand(deps(NOW), defaultConfig).run([], io);

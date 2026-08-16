@@ -52,7 +52,10 @@ export function createSummaryCommand(
       const { value: day, rest } = takeOption(afterChart, "--day");
       rejectUnknownArgs(rest, { command: "summary", usage: SUMMARY_USAGE });
 
-      await report(deps, loadConfig, io, resolvePeriod(day, deps.now()), { chart, terminal });
+      await report(deps, loadConfig, io, (timeZone) => resolvePeriod(day, deps.now(), timeZone), {
+        chart,
+        terminal,
+      });
     },
   };
 }
@@ -72,7 +75,10 @@ export function createTodayCommand(
       const { present: chart, rest } = takeFlag(argv, "--chart");
       rejectUnknownArgs(rest, { command: "today", usage: TODAY_USAGE });
 
-      await report(deps, loadConfig, io, dayPeriodOf(deps.now()), { chart, terminal });
+      await report(deps, loadConfig, io, (timeZone) => dayPeriodOf(deps.now(), timeZone), {
+        chart,
+        terminal,
+      });
     },
   };
 }
@@ -87,7 +93,9 @@ async function report(
   deps: CommandDeps,
   loadConfig: LoadConfig,
   io: CliIo,
-  period: Period,
+  // **期間は設定を読んだあとに決める（#64）。** どの日を指すかがタイムゾーンで変わるので、
+  // 呼び出し側で先に組み立てられない
+  periodOf: (timeZone: string) => Period,
   view: { readonly chart: boolean; readonly terminal: Terminal },
 ): Promise<void> {
   // 設定の警告は集計より先に出す。表を読んだあとに「その値は無視した」と言われても、
@@ -97,12 +105,13 @@ async function report(
     io.err(warning);
   }
 
+  const period = periodOf(config.timezone);
   const now = deps.now();
   const entries = await deps.store.listByRange(period);
   const summary = summarize(entries, period, now);
 
   // 図と表で数字が食い違わないよう、丸めは同じものを両方に渡す
-  const day = formatDay(period.start);
+  const day = formatDay(period.start, config.timezone);
   const rounding = roundingRuleOf(config);
   const lines = view.chart
     ? formatSummaryChartLines(day, summary, view.terminal, rounding)
@@ -114,13 +123,13 @@ async function report(
 }
 
 /** `--day` の解決。domain のエラーは利用者向けに翻訳する（domain は `UserError` を知らない）。 */
-function resolvePeriod(day: string | undefined, now: Date): Period {
+function resolvePeriod(day: string | undefined, now: Date, timeZone: string): Period {
   if (day === undefined) {
-    return dayPeriodOf(now);
+    return dayPeriodOf(now, timeZone);
   }
 
   try {
-    return parseDayPeriod(day);
+    return parseDayPeriod(day, timeZone);
   } catch (error) {
     throw new UserError(error instanceof Error ? error.message : String(error));
   }

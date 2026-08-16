@@ -1,5 +1,6 @@
 import { dayPeriodOf, parseDayPeriod } from "./day.js";
 import type { Period } from "./period.js";
+import { instantOf, shiftWallDays, wallClockIn } from "./timezone.js";
 import { assertWeekStartsOn, DEFAULT_WEEK_STARTS_ON, weekPeriodOf } from "./week.js";
 
 /**
@@ -43,6 +44,13 @@ const CANDIDATES = [
 ];
 
 export interface PeriodExpressionOptions {
+  /**
+   * 期間を区切るタイムゾーン（IANA 名）。**省略できない**（#64）。
+   *
+   * `today` も `2026-08-01` も「どのゾーンの1日か」で指す範囲が変わる。既定値を
+   * 持たせると、渡し忘れた経路だけ実行環境の TZ で区切られる。
+   */
+  readonly timeZone: string;
   /** 週の開始曜日（0=日曜 … 6=土曜）。既定は月曜。 */
   readonly weekStartsOn?: number;
 }
@@ -56,8 +64,9 @@ export interface PeriodExpressionOptions {
 export function parsePeriodExpression(
   value: string,
   now: Date,
-  options: PeriodExpressionOptions = {},
+  options: PeriodExpressionOptions,
 ): Period {
+  const { timeZone } = options;
   const weekStartsOn = options.weekStartsOn ?? DEFAULT_WEEK_STARTS_ON;
   assertWeekStartsOn(weekStartsOn);
 
@@ -65,39 +74,39 @@ export function parsePeriodExpression(
 
   switch (expression) {
     case "today": {
-      return dayPeriodOf(now);
+      return dayPeriodOf(now, timeZone);
     }
     case "yesterday": {
-      return dayPeriodOf(shiftDays(now, -1));
+      return dayPeriodOf(shiftWallDays(now, -1, timeZone), timeZone);
     }
     case "this-week": {
-      return weekPeriodOf(now, { weekStartsOn, offsetWeeks: 0 });
+      return weekPeriodOf(now, { timeZone, weekStartsOn, offsetWeeks: 0 });
     }
     case "last-week": {
-      return weekPeriodOf(now, { weekStartsOn, offsetWeeks: -1 });
+      return weekPeriodOf(now, { timeZone, weekStartsOn, offsetWeeks: -1 });
     }
     case "this-month": {
-      return monthPeriod(now);
+      return monthPeriod(now, timeZone);
     }
     default: {
-      return parseNonKeyword(expression, now);
+      return parseNonKeyword(expression, now, timeZone);
     }
   }
 }
 
 /** キーワード以外（日付・範囲・相対日数）を解析する。 */
-function parseNonKeyword(expression: string, now: Date): Period {
+function parseNonKeyword(expression: string, now: Date, timeZone: string): Period {
   if (expression.includes(RANGE_SEPARATOR)) {
-    return parseRange(expression);
+    return parseRange(expression, timeZone);
   }
 
   const relative = RELATIVE_DAYS.exec(expression);
   if (relative !== null) {
-    return relativeDaysPeriod(expression, relative[1] ?? "", now);
+    return relativeDaysPeriod(expression, relative[1] ?? "", now, timeZone);
   }
 
   try {
-    return parseDayPeriod(expression);
+    return parseDayPeriod(expression, timeZone);
   } catch (error) {
     throw dateError(expression, error);
   }
@@ -125,7 +134,7 @@ function dateError(expression: string, cause: unknown): Error {
  * 両端は `trim` する。引用符で囲んで `"2026-08-01 .. 2026-08-07"` と書く人がいるため、
  * 区切りのまわりの空白だけで弾かない。
  */
-function parseRange(expression: string): Period {
+function parseRange(expression: string, timeZone: string): Period {
   const parts = expression.split(RANGE_SEPARATOR);
   if (parts.length !== 2) {
     throw unsupported(expression);
@@ -135,8 +144,8 @@ function parseRange(expression: string): Period {
   let start: Period;
   let last: Period;
   try {
-    start = parseDayPeriod(from ?? "");
-    last = parseDayPeriod(to ?? "");
+    start = parseDayPeriod(from ?? "", timeZone);
+    last = parseDayPeriod(to ?? "", timeZone);
   } catch (error) {
     throw dateError(expression, error);
   }
@@ -149,35 +158,40 @@ function parseRange(expression: string): Period {
 }
 
 /** `-7d` を「今日を含む直近7日」として解決する。`-1d` は today と同じ。 */
-function relativeDaysPeriod(expression: string, digits: string, now: Date): Period {
+function relativeDaysPeriod(
+  expression: string,
+  digits: string,
+  now: Date,
+  timeZone: string,
+): Period {
   const days = Number(digits);
   if (!Number.isInteger(days) || days < 1) {
     throw new Error(`直近の日数は1以上で指定してください: ${expression}`);
   }
 
-  const today = dayPeriodOf(now);
+  const today = dayPeriodOf(now, timeZone);
 
-  return { start: shiftDays(today.start, -(days - 1)), end: today.end };
+  return {
+    start: dayPeriodOf(shiftWallDays(today.start, -(days - 1), timeZone), timeZone).start,
+    end: today.end,
+  };
 }
 
-/** 月の期間。月初から翌月初まで。00:00 への揃えは `dayPeriodOf` に任せる。 */
-function monthPeriod(now: Date): Period {
-  const start = dayPeriodOf(now).start;
-  start.setDate(1);
+/**
+ * 月の期間。月初から翌月初まで。
+ *
+ * **`setMonth` に任せない。** 実行環境の TZ で動くので、渡されたゾーンとは違う月初を
+ * 指しうる。年をまたぐ繰り上がりだけ自分で書き、00:00 への揃えは `instantOf` に任せる。
+ */
+function monthPeriod(now: Date, timeZone: string): Period {
+  const wall = wallClockIn(now, timeZone);
+  const firstOf = (year: number, month: number): Date =>
+    instantOf({ year, month, day: 1, hours: 0, minutes: 0, seconds: 0 }, timeZone);
 
-  const end = new Date(start);
-  // 月の日数を自前で数えると月末・うるう年で間違える。月に 1 を足すのは Date に任せる
-  end.setMonth(end.getMonth() + 1);
-
-  return { start, end };
-}
-
-/** 日付を足し引きする。月末・年末の繰り上がりは `setDate` に任せる。 */
-function shiftDays(moment: Date, days: number): Date {
-  const shifted = new Date(moment);
-  shifted.setDate(shifted.getDate() + days);
-
-  return shifted;
+  return {
+    start: firstOf(wall.year, wall.month),
+    end: wall.month === 12 ? firstOf(wall.year + 1, 1) : firstOf(wall.year, wall.month + 1),
+  };
 }
 
 /** 解釈できなかったときのエラー。候補を並べて、打ち直せるようにする。 */

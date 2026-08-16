@@ -8,6 +8,7 @@ import { createStartCommand } from "../../src/commands/start.js";
 import { createStopCommand } from "../../src/commands/stop.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
 import type { Store } from "../../src/store/store.js";
+import { testLoadConfig } from "../support/config.js";
 
 let dir = "";
 let store: Store;
@@ -67,7 +68,10 @@ function localTime(hours: number, minutes: number, seconds = 0): Date {
 
 /** 09:00 に開始した実行中エントリを作る。 */
 async function startAt9(): Promise<void> {
-  await createStartCommand(deps(new Date("2026-08-12T09:00:00Z"))).run(["設計 #work"], io);
+  await createStartCommand(deps(new Date("2026-08-12T09:00:00Z")), testLoadConfig()).run(
+    ["設計 #work"],
+    io,
+  );
   out = [];
 }
 
@@ -75,7 +79,7 @@ describe("start → stop", () => {
   it("1件のエントリが終了時刻付きで保存される", async () => {
     await startAt9();
 
-    await createStopCommand(deps(new Date("2026-08-12T10:23:00Z"))).run([], io);
+    await createStopCommand(deps(new Date("2026-08-12T10:23:00Z")), testLoadConfig()).run([], io);
 
     const entries = await store.listByRange(allTime);
 
@@ -87,7 +91,7 @@ describe("start → stop", () => {
   it("作業名とタグは stop でも保たれる", async () => {
     await startAt9();
 
-    await createStopCommand(deps(new Date("2026-08-12T10:00:00Z"))).run([], io);
+    await createStopCommand(deps(new Date("2026-08-12T10:00:00Z")), testLoadConfig()).run([], io);
 
     const entry = (await store.listByRange(allTime))[0];
 
@@ -98,7 +102,7 @@ describe("start → stop", () => {
   it("記録された時間を人間可読な形式で表示する", async () => {
     await startAt9();
 
-    await createStopCommand(deps(new Date("2026-08-12T10:23:00Z"))).run([], io);
+    await createStopCommand(deps(new Date("2026-08-12T10:23:00Z")), testLoadConfig()).run([], io);
 
     expect(out.join("\n")).toContain("1h 23m");
   });
@@ -106,7 +110,7 @@ describe("start → stop", () => {
   it("出力は stdout に出て stderr は空", async () => {
     await startAt9();
 
-    await createStopCommand(deps(new Date("2026-08-12T10:23:00Z"))).run([], io);
+    await createStopCommand(deps(new Date("2026-08-12T10:23:00Z")), testLoadConfig()).run([], io);
 
     expect(out.length).toBeGreaterThan(0);
     expect(err).toEqual([]);
@@ -115,7 +119,7 @@ describe("start → stop", () => {
   it("停止後は実行中エントリがなくなる", async () => {
     await startAt9();
 
-    await createStopCommand(deps(new Date("2026-08-12T10:00:00Z"))).run([], io);
+    await createStopCommand(deps(new Date("2026-08-12T10:00:00Z")), testLoadConfig()).run([], io);
 
     expect(await store.findRunning()).toBeUndefined();
   });
@@ -123,7 +127,7 @@ describe("start → stop", () => {
   it("0分で停止しても失敗しない（境界）", async () => {
     await startAt9();
 
-    await createStopCommand(deps(new Date("2026-08-12T09:00:00Z"))).run([], io);
+    await createStopCommand(deps(new Date("2026-08-12T09:00:00Z")), testLoadConfig()).run([], io);
 
     const entry = (await store.listByRange(allTime))[0];
 
@@ -134,9 +138,12 @@ describe("start → stop", () => {
 
 describe("stop --note", () => {
   it("note を後から付けられる", async () => {
-    await createStartCommand(deps(new Date("2026-08-12T09:00:00Z"))).run(["#work"], io);
+    await createStartCommand(deps(new Date("2026-08-12T09:00:00Z")), testLoadConfig()).run(
+      ["#work"],
+      io,
+    );
 
-    await createStopCommand(deps(new Date("2026-08-12T10:00:00Z"))).run(
+    await createStopCommand(deps(new Date("2026-08-12T10:00:00Z")), testLoadConfig()).run(
       ["--note", "実装まで終わった"],
       io,
     );
@@ -147,7 +154,10 @@ describe("stop --note", () => {
   it("start で付けた note を上書きする", async () => {
     await startAt9();
 
-    await createStopCommand(deps(new Date("2026-08-12T10:00:00Z"))).run(["--note", "上書き"], io);
+    await createStopCommand(deps(new Date("2026-08-12T10:00:00Z")), testLoadConfig()).run(
+      ["--note", "上書き"],
+      io,
+    );
 
     expect((await store.listByRange(allTime))[0]?.note).toBe("上書き");
   });
@@ -155,7 +165,7 @@ describe("stop --note", () => {
   it("--note を渡さなければ start の note が残る", async () => {
     await startAt9();
 
-    await createStopCommand(deps(new Date("2026-08-12T10:00:00Z"))).run([], io);
+    await createStopCommand(deps(new Date("2026-08-12T10:00:00Z")), testLoadConfig()).run([], io);
 
     expect((await store.listByRange(allTime))[0]?.note).toBe("設計");
   });
@@ -164,37 +174,40 @@ describe("stop --note", () => {
     await startAt9();
 
     await expect(
-      createStopCommand(deps(new Date("2026-08-12T10:00:00Z"))).run(["--note"], io),
+      createStopCommand(deps(new Date("2026-08-12T10:00:00Z")), testLoadConfig()).run(
+        ["--note"],
+        io,
+      ),
     ).rejects.toThrow(UserError);
   });
 });
 
 describe("stop --at", () => {
   it("指定した時刻を終了時刻として記録する", async () => {
-    await createStartCommand(deps(localTime(8, 0))).run(["設計"], io);
+    await createStartCommand(deps(localTime(8, 0)), testLoadConfig()).run(["設計"], io);
 
-    await createStopCommand(deps(localTime(12, 0))).run(["--at", "10:15"], io);
+    await createStopCommand(deps(localTime(12, 0)), testLoadConfig()).run(["--at", "10:15"], io);
 
     expect((await store.listByRange(allTime))[0]?.end).toBe(localTime(10, 15).toISOString());
   });
 
   it("開始より前の時刻を指定したら UserError で失敗する", async () => {
     const now = localTime(23, 0);
-    await createStartCommand(deps(now)).run(["設計"], io);
+    await createStartCommand(deps(now), testLoadConfig()).run(["設計"], io);
 
-    await expect(createStopCommand(deps(now)).run(["--at", "00:01"], io)).rejects.toThrow(
-      UserError,
-    );
+    await expect(
+      createStopCommand(deps(now), testLoadConfig()).run(["--at", "00:01"], io),
+    ).rejects.toThrow(UserError);
   });
 
   it("開始より前を指定して失敗しても、実行中のままにする", async () => {
     const now = localTime(23, 0);
-    await createStartCommand(deps(now)).run(["設計"], io);
+    await createStartCommand(deps(now), testLoadConfig()).run(["設計"], io);
 
     // 失敗することは別のテストで確認済み。ここでは実行中が残るかだけを見る
-    await Promise.resolve(createStopCommand(deps(now)).run(["--at", "00:01"], io)).catch(
-      () => undefined,
-    );
+    await Promise.resolve(
+      createStopCommand(deps(now), testLoadConfig()).run(["--at", "00:01"], io),
+    ).catch(() => undefined);
 
     expect(await store.findRunning()).toBeDefined();
   });
@@ -203,23 +216,26 @@ describe("stop --at", () => {
     await startAt9();
 
     await expect(
-      createStopCommand(deps(new Date("2026-08-12T10:00:00Z"))).run(["--at", "25:00"], io),
+      createStopCommand(deps(new Date("2026-08-12T10:00:00Z")), testLoadConfig()).run(
+        ["--at", "25:00"],
+        io,
+      ),
     ).rejects.toThrow(UserError);
   });
 
   it("未来の時刻を指定したら UserError で失敗する", async () => {
-    await createStartCommand(deps(localTime(8, 0))).run(["設計"], io);
+    await createStartCommand(deps(localTime(8, 0)), testLoadConfig()).run(["設計"], io);
 
     await expect(
-      createStopCommand(deps(localTime(9, 0))).run(["--at", "09:30"], io),
+      createStopCommand(deps(localTime(9, 0)), testLoadConfig()).run(["--at", "09:30"], io),
     ).rejects.toThrow(UserError);
   });
 
   it("未来を指定して失敗しても、実行中のままにする", async () => {
-    await createStartCommand(deps(localTime(8, 0))).run(["設計"], io);
+    await createStartCommand(deps(localTime(8, 0)), testLoadConfig()).run(["設計"], io);
 
     await Promise.resolve(
-      createStopCommand(deps(localTime(9, 0))).run(["--at", "09:30"], io),
+      createStopCommand(deps(localTime(9, 0)), testLoadConfig()).run(["--at", "09:30"], io),
     ).catch(() => undefined);
 
     expect(await store.findRunning()).toBeDefined();
@@ -236,7 +252,7 @@ describe("stop の未知の引数", () => {
     await startAt9();
 
     await expect(
-      createStopCommand(deps(new Date("2026-08-12T10:00:00Z"))).run([token], io),
+      createStopCommand(deps(new Date("2026-08-12T10:00:00Z")), testLoadConfig()).run([token], io),
     ).rejects.toThrow(UserError);
   });
 
@@ -244,34 +260,46 @@ describe("stop の未知の引数", () => {
     await startAt9();
 
     await Promise.resolve(
-      createStopCommand(deps(new Date("2026-08-12T10:00:00Z"))).run(["--help"], io),
+      createStopCommand(deps(new Date("2026-08-12T10:00:00Z")), testLoadConfig()).run(
+        ["--help"],
+        io,
+      ),
     ).catch(() => undefined);
 
     expect(await store.findRunning()).toBeDefined();
   });
 
   it("--note の値が別のオプションなら UserError で失敗する", async () => {
-    await createStartCommand(deps(localTime(8, 0))).run(["設計"], io);
+    await createStartCommand(deps(localTime(8, 0)), testLoadConfig()).run(["設計"], io);
 
     await expect(
-      createStopCommand(deps(localTime(12, 0))).run(["--note", "--at", "10:00"], io),
+      createStopCommand(deps(localTime(12, 0)), testLoadConfig()).run(
+        ["--note", "--at", "10:00"],
+        io,
+      ),
     ).rejects.toThrow(UserError);
   });
 
   it("--note の値が別のオプションだった場合、終了時刻を黙って now にしない", async () => {
-    await createStartCommand(deps(localTime(8, 0))).run(["設計"], io);
+    await createStartCommand(deps(localTime(8, 0)), testLoadConfig()).run(["設計"], io);
 
     await Promise.resolve(
-      createStopCommand(deps(localTime(12, 0))).run(["--note", "--at", "10:00"], io),
+      createStopCommand(deps(localTime(12, 0)), testLoadConfig()).run(
+        ["--note", "--at", "10:00"],
+        io,
+      ),
     ).catch(() => undefined);
 
     expect(await store.findRunning()).toBeDefined();
   });
 
   it("--at と --note を両方渡すのは通る", async () => {
-    await createStartCommand(deps(localTime(8, 0))).run(["設計"], io);
+    await createStartCommand(deps(localTime(8, 0)), testLoadConfig()).run(["設計"], io);
 
-    await createStopCommand(deps(localTime(12, 0))).run(["--at", "10:15", "--note", "完了"], io);
+    await createStopCommand(deps(localTime(12, 0)), testLoadConfig()).run(
+      ["--at", "10:15", "--note", "完了"],
+      io,
+    );
 
     const entry = (await store.listByRange(allTime))[0];
 
@@ -283,21 +311,21 @@ describe("stop の未知の引数", () => {
 describe("実行中がない状態での stop", () => {
   it("UserError で失敗する（終了コード 1 になる）", async () => {
     await expect(
-      createStopCommand(deps(new Date("2026-08-12T10:00:00Z"))).run([], io),
+      createStopCommand(deps(new Date("2026-08-12T10:00:00Z")), testLoadConfig()).run([], io),
     ).rejects.toThrow(UserError);
   });
 
   it("すでに停止したあとに再度 stop すると失敗する", async () => {
     await startAt9();
     const d = deps(new Date("2026-08-12T10:00:00Z"));
-    await createStopCommand(d).run([], io);
+    await createStopCommand(d, testLoadConfig()).run([], io);
 
-    await expect(createStopCommand(d).run([], io)).rejects.toThrow(UserError);
+    await expect(createStopCommand(d, testLoadConfig()).run([], io)).rejects.toThrow(UserError);
   });
 
   it("記録が1件もない状態でも例外で落ちずに UserError になる", async () => {
     await expect(
-      createStopCommand(deps(new Date("2026-08-12T10:00:00Z"))).run([], io),
+      createStopCommand(deps(new Date("2026-08-12T10:00:00Z")), testLoadConfig()).run([], io),
     ).rejects.toThrow(/実行中/);
   });
 });

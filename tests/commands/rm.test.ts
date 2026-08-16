@@ -12,6 +12,7 @@ import { createJsonlStore } from "../../src/store/jsonl-store.js";
 import { DEFAULT_CONFIG } from "../../src/domain/config.js";
 import type { LoadConfig } from "../../src/store/config-store.js";
 import type { Store } from "../../src/store/store.js";
+import { RUNTIME_TZ, testLoadConfig } from "../support/config.js";
 
 let dir = "";
 let store: Store;
@@ -49,7 +50,8 @@ const confirmNever: Confirm = () => {
 };
 
 /** 一覧の確認に使う `log` は設定を読まない（既定値のみ）。 */
-const defaultConfig: LoadConfig = () => Promise.resolve({ config: DEFAULT_CONFIG, warnings: [] });
+const defaultConfig: LoadConfig = () =>
+  Promise.resolve({ config: { ...DEFAULT_CONFIG, timezone: RUNTIME_TZ }, warnings: [] });
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "tock-rm-"));
@@ -87,8 +89,8 @@ const allTime = { start: local(1, 0), end: local(28, 0) };
 const NOW = local(13, 18);
 
 async function record(start: Date, end: Date, description: string): Promise<string> {
-  await createStartCommand(deps(start)).run([description], io);
-  await createStopCommand(deps(end)).run([], io);
+  await createStartCommand(deps(start), testLoadConfig()).run([description], io);
+  await createStopCommand(deps(end), testLoadConfig()).run([], io);
   out = [];
 
   return (await store.listByRange(allTime)).at(-1)?.id ?? "";
@@ -250,7 +252,7 @@ describe("rm の id の指定（DoD）", () => {
 // CLAUDE.md の境界値チェックリスト「終端のないデータ」
 describe("rm と実行中エントリ（終端がない）", () => {
   async function startOnly(start: Date, description: string): Promise<string> {
-    await createStartCommand(deps(start)).run([description], io);
+    await createStartCommand(deps(start), testLoadConfig()).run([description], io);
     out = [];
 
     return (await store.listByRange(allTime)).at(-1)?.id ?? "";
@@ -276,7 +278,7 @@ describe("rm と実行中エントリ（終端がない）", () => {
     const id = await startOnly(local(13, 9), "作業中 #work");
     await createRmCommand(deps(NOW), confirmYes).run([id, "--yes"], io);
 
-    await createStartCommand(deps(local(13, 19))).run(["新しい作業"], io);
+    await createStartCommand(deps(local(13, 19)), testLoadConfig()).run(["新しい作業"], io);
 
     expect(await store.findRunning()).toBeDefined();
   });
@@ -298,7 +300,7 @@ describe("確認を待つ間の排他（#11）", () => {
     let wroteDuringConfirm = false;
 
     const confirmMeanwhile: Confirm = async () => {
-      await createStartCommand(deps(local(13, 17))).run(["割り込み"], io);
+      await createStartCommand(deps(local(13, 17)), testLoadConfig()).run(["割り込み"], io);
       wroteDuringConfirm = true;
 
       return true;

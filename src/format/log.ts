@@ -34,15 +34,19 @@ const GAP = "  ";
  * 該当0件は**エラーではなく1行のメッセージ**にする。「今日はまだ記録していない」は
  * 正常な状態であり、`status` が実行中なしを終了コード 0 で返すのと同じ考え方。
  */
-export function formatLogLines(rows: readonly LogRow[], idLength: number): string[] {
+export function formatLogLines(
+  rows: readonly LogRow[],
+  idLength: number,
+  timeZone: string,
+): string[] {
   if (rows.length === 0) {
     return [EMPTY_MESSAGE];
   }
 
   const cells = rows.map((row) => ({
     id: shortenId(row.entryId, idLength),
-    day: formatDay(row.start),
-    range: timeRange(row),
+    day: formatDay(row.start, timeZone),
+    range: timeRange(row, timeZone),
     duration: formatDuration(row.durationMs),
     label: labelOf(row),
   }));
@@ -66,10 +70,10 @@ export function formatLogLines(rows: readonly LogRow[], idLength: number): strin
 }
 
 /** 開始と終了を `09:00-10:30` の形で表す。実行中は終了の側を `実行中` にする。 */
-function timeRange(row: LogRow): string {
-  const end = row.end === undefined ? RUNNING_LABEL : formatClock(row.end);
+function timeRange(row: LogRow, timeZone: string): string {
+  const end = row.end === undefined ? RUNNING_LABEL : formatClock(row.end, timeZone);
 
-  return `${formatClock(row.start)}-${end}`;
+  return `${formatClock(row.start, timeZone)}-${end}`;
 }
 
 /**

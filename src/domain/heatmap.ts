@@ -45,8 +45,13 @@ const HOURS_PER_DAY = 24;
  * （domain から現在時刻を読まない）。`asOf` より後の時間帯は 0 のままになる
  * ——まだ経っていない時間を数えないため。
  */
-export function summarizeHeatmap(entries: readonly Entry[], week: Period, asOf: Date): Heatmap {
-  const rows = daysOfWeek(week).map((day) => ({
+export function summarizeHeatmap(
+  entries: readonly Entry[],
+  week: Period,
+  asOf: Date,
+  timeZone: string,
+): Heatmap {
+  const rows = daysOfWeek(week, timeZone).map((day) => ({
     day: day.start,
     hourlyMs: hoursOf(entries, day, asOf),
   }));

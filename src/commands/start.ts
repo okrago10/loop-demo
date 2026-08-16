@@ -1,7 +1,14 @@
 import { type Command, type CliIo, UserError } from "../cli.js";
 import { createEntry, startedAt } from "../domain/entry.js";
 import { formatMoment } from "../format/time.js";
-import { type CommandDeps, parseDescription, rejectUnknownArgs, resolveAt } from "./args.js";
+import type { LoadConfig } from "../store/config-store.js";
+import {
+  type CommandDeps,
+  loadWarnedConfig,
+  parseDescription,
+  rejectUnknownArgs,
+  resolveAt,
+} from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 
 /**
@@ -19,16 +26,20 @@ const USAGE: CommandUsage = {
   examples: ['tock start "設計 #work"', 'tock start "会議 #会議 #proj/tock" --at 09:30'],
 };
 
-export function createStartCommand(deps: CommandDeps): Command {
+export function createStartCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
     name: "start",
     summary: "作業を開始する",
     usage: USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
+      // **設定を先に読む（#64）。** `--at` をどのゾーンで解釈するかが設定で決まるので、
+      // 引数の解決より前に要る
+      const config = await loadWarnedConfig(loadConfig, io);
+
       // 引数の検査を保存より先に済ませる。打ち間違いで状態が変わらないようにする
       const now = deps.now();
-      const { at, rest } = resolveAt(argv, now);
+      const { at, rest } = resolveAt(argv, now, config.timezone);
       rejectUnknownArgs(rest, { command: "start", usage: USAGE });
       const { tags, note } = parseDescription(rest.join(" "));
 
@@ -38,7 +49,7 @@ export function createStartCommand(deps: CommandDeps): Command {
         const running = await deps.store.findRunning();
         if (running !== undefined) {
           throw new UserError(
-            `すでに実行中の作業があります（開始: ${formatMoment(startedAt(running), now)}）。` +
+            `すでに実行中の作業があります（開始: ${formatMoment(startedAt(running), now, config.timezone)}）。` +
               "先に tock stop してください",
           );
         }
@@ -56,7 +67,7 @@ export function createStartCommand(deps: CommandDeps): Command {
       const label = note ?? "（名前なし）";
       const tagText = tags.length === 0 ? "" : ` [${tags.map((tag) => `#${tag}`).join(" ")}]`;
       io.out(`開始しました: ${label}${tagText}`);
-      io.out(`開始時刻: ${formatMoment(startedAt(entry), now)}`);
+      io.out(`開始時刻: ${formatMoment(startedAt(entry), now, config.timezone)}`);
     },
   };
 }

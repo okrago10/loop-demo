@@ -8,6 +8,7 @@ import { createStatusCommand } from "../../src/commands/status.js";
 import { createStopCommand } from "../../src/commands/stop.js";
 import { createSwitchCommand } from "../../src/commands/switch.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
+import { testLoadConfig } from "../support/config.js";
 import type { Store } from "../../src/store/store.js";
 
 /**
@@ -87,19 +88,19 @@ function valueOf(prefix: string): string {
 
 describe("start の出力（DoD）", () => {
   it("**開始時刻が保存形式のまま出ない**", async () => {
-    await createStartCommand(deps(local(12, 9, 30, 45))).run(["設計 #work"], io);
+    await createStartCommand(deps(local(12, 9, 30, 45)), testLoadConfig()).run(["設計 #work"], io);
 
     expect(valueOf("開始時刻: ")).toBe("09:30:45");
   });
 
   it("ミリ秒が出ない", async () => {
-    await createStartCommand(deps(local(12, 9, 30, 45))).run(["設計"], io);
+    await createStartCommand(deps(local(12, 9, 30, 45)), testLoadConfig()).run(["設計"], io);
 
     expect(valueOf("開始時刻: ")).not.toContain(".");
   });
 
   it("保存形式の名残（T / Z）が出ない", async () => {
-    await createStartCommand(deps(local(12, 9))).run(["設計"], io);
+    await createStartCommand(deps(local(12, 9)), testLoadConfig()).run(["設計"], io);
 
     expect(out.join("\n")).not.toMatch(/\d{2}T\d{2}/);
     expect(valueOf("開始時刻: ")).not.toContain("Z");
@@ -107,16 +108,19 @@ describe("start の出力（DoD）", () => {
 
   it("`--at` で打った時刻と、表示される時刻が一致する", async () => {
     // これがずれているのが #45 の発端（`--at 09:30` と打って `00:30:00.000Z` が出た）
-    await createStartCommand(deps(local(12, 18))).run(["設計", "--at", "09:30"], io);
+    await createStartCommand(deps(local(12, 18)), testLoadConfig()).run(
+      ["設計", "--at", "09:30"],
+      io,
+    );
 
     expect(valueOf("開始時刻: ")).toBe("09:30:00");
   });
 
   it("すでに実行中のときのエラーにも、読める時刻が出る", async () => {
-    await createStartCommand(deps(local(12, 9, 30))).run(["先客"], io);
+    await createStartCommand(deps(local(12, 9, 30)), testLoadConfig()).run(["先客"], io);
 
     const error = await Promise.resolve(
-      createStartCommand(deps(local(12, 10))).run(["あと客"], io),
+      createStartCommand(deps(local(12, 10)), testLoadConfig()).run(["あと客"], io),
     ).then(
       () => undefined,
       (caught: unknown) => caught,
@@ -129,29 +133,29 @@ describe("start の出力（DoD）", () => {
 
 describe("stop の出力（DoD）", () => {
   it("**終了時刻が保存形式のまま出ない**", async () => {
-    await createStartCommand(deps(local(12, 9))).run(["設計"], io);
+    await createStartCommand(deps(local(12, 9)), testLoadConfig()).run(["設計"], io);
     out = [];
 
-    await createStopCommand(deps(local(12, 10, 15, 30))).run([], io);
+    await createStopCommand(deps(local(12, 10, 15, 30)), testLoadConfig()).run([], io);
 
     expect(valueOf("終了時刻: ")).toBe("10:15:30");
   });
 
   it("ミリ秒が出ない", async () => {
-    await createStartCommand(deps(local(12, 9))).run(["設計"], io);
+    await createStartCommand(deps(local(12, 9)), testLoadConfig()).run(["設計"], io);
     out = [];
 
-    await createStopCommand(deps(local(12, 10))).run([], io);
+    await createStopCommand(deps(local(12, 10)), testLoadConfig()).run([], io);
 
     expect(valueOf("終了時刻: ")).not.toContain(".");
   });
 
   it("**日を跨いで止めると、日付が付く**（境界: 日跨ぎ）", async () => {
     // 23:00 に始めて翌 01:00 に止める。日付が無いと前日の記録に見えない
-    await createStartCommand(deps(local(12, 23))).run(["夜業"], io);
+    await createStartCommand(deps(local(12, 23)), testLoadConfig()).run(["夜業"], io);
     out = [];
 
-    await createStopCommand(deps(local(13, 1))).run([], io);
+    await createStopCommand(deps(local(13, 1)), testLoadConfig()).run([], io);
 
     expect(valueOf("終了時刻: ")).toBe("01:00:00");
   });
@@ -159,35 +163,35 @@ describe("stop の出力（DoD）", () => {
 
 describe("status の出力（DoD）", () => {
   it("**開始が保存形式のまま出ない**", async () => {
-    await createStartCommand(deps(local(12, 9, 30, 45))).run(["設計 #work"], io);
+    await createStartCommand(deps(local(12, 9, 30, 45)), testLoadConfig()).run(["設計 #work"], io);
     out = [];
 
-    await createStatusCommand(deps(local(12, 10))).run([], io);
+    await createStatusCommand(deps(local(12, 10)), testLoadConfig()).run([], io);
 
     expect(valueOf("開始: ")).toBe("09:30:45");
   });
 
   it("**前日から実行中なら日付が付く**（境界: 日跨ぎ・終端のないデータ）", async () => {
     // 止め忘れて日を跨いだ記録。日付が無いと「今日の 23:00 から」と読めてしまう
-    await createStartCommand(deps(local(12, 23))).run(["止め忘れ"], io);
+    await createStartCommand(deps(local(12, 23)), testLoadConfig()).run(["止め忘れ"], io);
     out = [];
 
-    await createStatusCommand(deps(local(13, 9))).run([], io);
+    await createStatusCommand(deps(local(13, 9)), testLoadConfig()).run([], io);
 
     expect(valueOf("開始: ")).toBe("2026-08-12 23:00:00");
   });
 
   it("`--short` の出力は変えていない（プロンプト向けの形式を壊さない）", async () => {
-    await createStartCommand(deps(local(12, 9))).run(["設計 #work"], io);
+    await createStartCommand(deps(local(12, 9)), testLoadConfig()).run(["設計 #work"], io);
     out = [];
 
-    await createStatusCommand(deps(local(12, 10))).run(["--short"], io);
+    await createStatusCommand(deps(local(12, 10)), testLoadConfig()).run(["--short"], io);
 
     expect(out).toEqual(["設計 #work 1h"]);
   });
 
   it("実行中が無いときの1行は変えていない", async () => {
-    await createStatusCommand(deps(local(12, 10))).run([], io);
+    await createStatusCommand(deps(local(12, 10)), testLoadConfig()).run([], io);
 
     expect(out.join("\n")).toContain("実行中の作業はありません");
   });
@@ -195,16 +199,16 @@ describe("status の出力（DoD）", () => {
 
 describe("switch の出力", () => {
   it("**開始時刻が保存形式のまま出ない**", async () => {
-    await createStartCommand(deps(local(12, 9))).run(["前の作業"], io);
+    await createStartCommand(deps(local(12, 9)), testLoadConfig()).run(["前の作業"], io);
     out = [];
 
-    await createSwitchCommand(deps(local(12, 10, 20, 5))).run(["次の作業"], io);
+    await createSwitchCommand(deps(local(12, 10, 20, 5)), testLoadConfig()).run(["次の作業"], io);
 
     expect(valueOf("開始時刻: ")).toBe("10:20:05");
   });
 
   it("実行中が無くても同じ形式で出る（境界: 0件）", async () => {
-    await createSwitchCommand(deps(local(12, 10))).run(["最初の作業"], io);
+    await createSwitchCommand(deps(local(12, 10)), testLoadConfig()).run(["最初の作業"], io);
 
     expect(valueOf("開始時刻: ")).toBe("10:00:00");
   });
@@ -215,28 +219,42 @@ describe("**保存されるデータの形式は変わっていない**（DoD）
   async function storedEntries(): Promise<Record<string, string>[]> {
     const raw = await readFile(file, "utf8");
 
+    // **行の種類は1つではない（#88）。** `append` / `update` は `entry` を持つが、
+    // `switch` は停止と開始を1行にまとめるので `stop` と `start` を持つ。
+    // 拾い漏らすと「保存形式が変わっていない」の検査が空振りになる——実際、
+    // `entry ?? {}` のままだと switch の行が空オブジェクトとして通り抜けていた
     return raw
       .split("\n")
       .filter((line) => line.trim() !== "")
-      .map((line) => (JSON.parse(line) as { entry?: Record<string, string> }).entry ?? {});
+      .flatMap((line) => {
+        const row = JSON.parse(line) as {
+          entry?: Record<string, string>;
+          stop?: Record<string, string>;
+          start?: Record<string, string>;
+        };
+
+        return [row.entry, row.stop, row.start].filter(
+          (found): found is Record<string, string> => found !== undefined,
+        );
+      });
   }
 
   it("start が書く `start` は UTC の ISO 8601 のまま", async () => {
-    await createStartCommand(deps(local(12, 9, 30, 45))).run(["設計"], io);
+    await createStartCommand(deps(local(12, 9, 30, 45)), testLoadConfig()).run(["設計"], io);
 
     expect((await storedEntries())[0]?.["start"]).toMatch(STORED_FORMAT);
   });
 
   it("stop が書く `end` は UTC の ISO 8601 のまま", async () => {
-    await createStartCommand(deps(local(12, 9))).run(["設計"], io);
-    await createStopCommand(deps(local(12, 10))).run([], io);
+    await createStartCommand(deps(local(12, 9)), testLoadConfig()).run(["設計"], io);
+    await createStopCommand(deps(local(12, 10)), testLoadConfig()).run([], io);
 
     expect((await storedEntries()).at(-1)?.["end"]).toMatch(STORED_FORMAT);
   });
 
   it("switch が書く時刻も UTC の ISO 8601 のまま", async () => {
-    await createStartCommand(deps(local(12, 9))).run(["前"], io);
-    await createSwitchCommand(deps(local(12, 10))).run(["次"], io);
+    await createStartCommand(deps(local(12, 9)), testLoadConfig()).run(["前"], io);
+    await createSwitchCommand(deps(local(12, 10)), testLoadConfig()).run(["次"], io);
 
     for (const entry of await storedEntries()) {
       expect(entry["start"]).toMatch(STORED_FORMAT);
@@ -247,7 +265,7 @@ describe("**保存されるデータの形式は変わっていない**（DoD）
   });
 
   it("**表示に使った値と保存された値が別物である**（表示だけを直したと言える）", async () => {
-    await createStartCommand(deps(local(12, 9, 30, 45))).run(["設計"], io);
+    await createStartCommand(deps(local(12, 9, 30, 45)), testLoadConfig()).run(["設計"], io);
 
     const shown = valueOf("開始時刻: ");
     const stored = (await storedEntries())[0]?.["start"] ?? "";
@@ -259,7 +277,7 @@ describe("**保存されるデータの形式は変わっていない**（DoD）
 
   it("読み戻すと同じ瞬間を指す（表示を変えても記録は動いていない）", async () => {
     const at = local(12, 9, 30, 45);
-    await createStartCommand(deps(at)).run(["設計"], io);
+    await createStartCommand(deps(at), testLoadConfig()).run(["設計"], io);
 
     const stored = (await storedEntries())[0]?.["start"] ?? "";
     expect(Date.parse(stored)).toBe(at.getTime());
@@ -270,19 +288,19 @@ describe("表示形式の一貫性", () => {
   it("4つのコマンドが同じ形式で時刻を出す", async () => {
     const shown: string[] = [];
 
-    await createStartCommand(deps(local(12, 9))).run(["1つめ"], io);
+    await createStartCommand(deps(local(12, 9)), testLoadConfig()).run(["1つめ"], io);
     shown.push(valueOf("開始時刻: "));
     out = [];
 
-    await createStatusCommand(deps(local(12, 10))).run([], io);
+    await createStatusCommand(deps(local(12, 10)), testLoadConfig()).run([], io);
     shown.push(valueOf("開始: "));
     out = [];
 
-    await createSwitchCommand(deps(local(12, 11))).run(["2つめ"], io);
+    await createSwitchCommand(deps(local(12, 11)), testLoadConfig()).run(["2つめ"], io);
     shown.push(valueOf("開始時刻: "));
     out = [];
 
-    await createStopCommand(deps(local(12, 12))).run([], io);
+    await createStopCommand(deps(local(12, 12)), testLoadConfig()).run([], io);
     shown.push(valueOf("終了時刻: "));
 
     for (const value of shown) {
@@ -291,10 +309,10 @@ describe("表示形式の一貫性", () => {
   });
 
   it("別日を指す場合も4つとも同じ形式になる", async () => {
-    await createStartCommand(deps(local(12, 23))).run(["夜業"], io);
+    await createStartCommand(deps(local(12, 23)), testLoadConfig()).run(["夜業"], io);
     out = [];
 
-    await createStatusCommand(deps(local(14, 9))).run([], io);
+    await createStatusCommand(deps(local(14, 9)), testLoadConfig()).run([], io);
 
     expect(valueOf("開始: ")).toMatch(SHOWN_WITH_DAY);
   });
@@ -328,22 +346,28 @@ describe("`now` を1回だけ取る（レビュー指摘）", () => {
   }
 
   it("**日付が変わる瞬間に stop しても、終了時刻に日付が付かない**", async () => {
-    await createStartCommand(deps(local(12, 23))).run(["夜業"], io);
+    await createStartCommand(deps(local(12, 23)), testLoadConfig()).run(["夜業"], io);
     out = [];
 
     // 1回目（`--at` の解釈）は 23:59:59、2回目（表示）は日を跨いだ 00:00:01。
     // `now` を2回取っていると、終了時刻 23:59:59 が「別日」と判定されて日付が付く
-    await createStopCommand(steppingDeps([local(12, 23, 59, 59), local(13, 0, 0, 1)])).run([], io);
+    await createStopCommand(
+      steppingDeps([local(12, 23, 59, 59), local(13, 0, 0, 1)]),
+      testLoadConfig(),
+    ).run([], io);
 
     expect(valueOf("終了時刻: ")).toBe("23:59:59");
     expect(valueOf("終了時刻: ")).toMatch(SHOWN_CLOCK);
   });
 
   it("日を跨がなければ従来どおり", async () => {
-    await createStartCommand(deps(local(12, 9))).run(["設計"], io);
+    await createStartCommand(deps(local(12, 9)), testLoadConfig()).run(["設計"], io);
     out = [];
 
-    await createStopCommand(steppingDeps([local(12, 10), local(12, 10, 0, 1)])).run([], io);
+    await createStopCommand(
+      steppingDeps([local(12, 10), local(12, 10, 0, 1)]),
+      testLoadConfig(),
+    ).run([], io);
 
     expect(valueOf("終了時刻: ")).toBe("10:00:00");
   });

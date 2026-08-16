@@ -8,6 +8,7 @@ import { createStartCommand } from "../../src/commands/start.js";
 import { createStopCommand } from "../../src/commands/stop.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
 import type { Store } from "../../src/store/store.js";
+import { testLoadConfig } from "../support/config.js";
 
 let dir = "";
 let store: Store;
@@ -71,7 +72,7 @@ const allTime = {
 
 describe("start", () => {
   it("実行中のエントリを1件作る", async () => {
-    await createStartCommand(deps()).run(["設計"], io);
+    await createStartCommand(deps(), testLoadConfig()).run(["設計"], io);
 
     const entries = await store.listByRange(allTime);
 
@@ -81,13 +82,13 @@ describe("start", () => {
   });
 
   it("作業名を note として保存する", async () => {
-    await createStartCommand(deps()).run(["設計"], io);
+    await createStartCommand(deps(), testLoadConfig()).run(["設計"], io);
 
     expect((await store.listByRange(allTime))[0]?.note).toBe("設計");
   });
 
   it("#つきの語をタグとして取り出す", async () => {
-    await createStartCommand(deps()).run(["設計 #proj/loop-demo #会議"], io);
+    await createStartCommand(deps(), testLoadConfig()).run(["設計 #proj/loop-demo #会議"], io);
 
     const entry = (await store.listByRange(allTime))[0];
 
@@ -96,7 +97,7 @@ describe("start", () => {
   });
 
   it("引数が複数に分かれていても1つの文字列として扱う", async () => {
-    await createStartCommand(deps()).run(["設計", "#work"], io);
+    await createStartCommand(deps(), testLoadConfig()).run(["設計", "#work"], io);
 
     const entry = (await store.listByRange(allTime))[0];
 
@@ -105,7 +106,7 @@ describe("start", () => {
   });
 
   it("タグだけを渡しても開始できる（note なし）", async () => {
-    await createStartCommand(deps()).run(["#work"], io);
+    await createStartCommand(deps(), testLoadConfig()).run(["#work"], io);
 
     const entry = (await store.listByRange(allTime))[0];
 
@@ -114,7 +115,7 @@ describe("start", () => {
   });
 
   it("引数なしでも開始できる（境界）", async () => {
-    await createStartCommand(deps()).run([], io);
+    await createStartCommand(deps(), testLoadConfig()).run([], io);
 
     const entry = (await store.listByRange(allTime))[0];
 
@@ -123,7 +124,7 @@ describe("start", () => {
   });
 
   it("同じタグを2回書いても1つになる", async () => {
-    await createStartCommand(deps()).run(["#work #work"], io);
+    await createStartCommand(deps(), testLoadConfig()).run(["#work #work"], io);
 
     expect((await store.listByRange(allTime))[0]?.tags).toEqual(["work"]);
   });
@@ -131,49 +132,57 @@ describe("start", () => {
   // #13 では `#` だけの語を作業名の一部として扱っていたが、タグの意味は #8 の担当。
   // 黙って作業名に混ぜると、タグを付けたつもりの記録が集計に出てこないまま気づけない
   it("`#` だけの語は不正なタグとして UserError で失敗する", async () => {
-    await expect(createStartCommand(deps()).run(["設計 #"], io)).rejects.toThrow(UserError);
+    await expect(createStartCommand(deps(), testLoadConfig()).run(["設計 #"], io)).rejects.toThrow(
+      UserError,
+    );
   });
 
   it("不正なタグで失敗したときは何も保存しない", async () => {
     // 例外を握りつぶさず UserError であることまで見る。別の例外で落ちていたら気づけるように
-    await expect(createStartCommand(deps()).run(["設計 #"], io)).rejects.toThrow(UserError);
+    await expect(createStartCommand(deps(), testLoadConfig()).run(["設計 #"], io)).rejects.toThrow(
+      UserError,
+    );
 
     expect(await store.listByRange(allTime)).toHaveLength(0);
   });
 
   it("タグの表記は正規化される（大文字は小文字に統一）", async () => {
-    await createStartCommand(deps()).run(["設計 #Work #WORK"], io);
+    await createStartCommand(deps(), testLoadConfig()).run(["設計 #Work #WORK"], io);
 
     expect((await store.listByRange(allTime))[0]?.tags).toEqual(["work"]);
   });
 
   it("開始したことと時刻を stdout に出す", async () => {
-    await createStartCommand(deps()).run(["設計"], io);
+    await createStartCommand(deps(), testLoadConfig()).run(["設計"], io);
 
     expect(out.join("\n")).toContain("設計");
     expect(err).toEqual([]);
   });
 
   it("すでに実行中なら UserError で失敗する（終了コード 1 になる）", async () => {
-    await createStartCommand(deps()).run(["1本目"], io);
+    await createStartCommand(deps(), testLoadConfig()).run(["1本目"], io);
 
-    await expect(createStartCommand(deps()).run(["2本目"], io)).rejects.toThrow(UserError);
+    await expect(createStartCommand(deps(), testLoadConfig()).run(["2本目"], io)).rejects.toThrow(
+      UserError,
+    );
   });
 
   it("二重 start でも1件しか保存されない", async () => {
-    await createStartCommand(deps()).run(["1本目"], io);
+    await createStartCommand(deps(), testLoadConfig()).run(["1本目"], io);
     // 失敗することは別のテストで確認済み。ここでは保存件数だけを見る
-    await Promise.resolve(createStartCommand(deps()).run(["2本目"], io)).catch(() => undefined);
+    await Promise.resolve(createStartCommand(deps(), testLoadConfig()).run(["2本目"], io)).catch(
+      () => undefined,
+    );
 
     expect(await store.listByRange(allTime)).toHaveLength(1);
   });
 
   it("停止したあとなら再度 start できる", async () => {
     const d = deps();
-    await createStartCommand(d).run(["1本目"], io);
-    await createStopCommand(d).run([], io);
+    await createStartCommand(d, testLoadConfig()).run(["1本目"], io);
+    await createStopCommand(d, testLoadConfig()).run([], io);
 
-    await createStartCommand(d).run(["2本目"], io);
+    await createStartCommand(d, testLoadConfig()).run(["2本目"], io);
 
     expect(await store.listByRange(allTime)).toHaveLength(2);
   });
@@ -184,7 +193,7 @@ describe("start --at", () => {
   const lateNow = localTime(23, 0);
 
   it("指定した時刻を開始時刻として記録する", async () => {
-    await createStartCommand(deps(lateNow)).run(["設計", "--at", "09:30"], io);
+    await createStartCommand(deps(lateNow), testLoadConfig()).run(["設計", "--at", "09:30"], io);
 
     const entry = (await store.listByRange(allTime))[0];
 
@@ -192,7 +201,7 @@ describe("start --at", () => {
   });
 
   it("秒まで指定できる", async () => {
-    await createStartCommand(deps(lateNow)).run(["--at", "09:30:15"], io);
+    await createStartCommand(deps(lateNow), testLoadConfig()).run(["--at", "09:30:15"], io);
 
     const entry = (await store.listByRange(allTime))[0];
 
@@ -200,7 +209,10 @@ describe("start --at", () => {
   });
 
   it("--at はタグや作業名に混ざらない", async () => {
-    await createStartCommand(deps(lateNow)).run(["設計 #work", "--at", "09:30"], io);
+    await createStartCommand(deps(lateNow), testLoadConfig()).run(
+      ["設計 #work", "--at", "09:30"],
+      io,
+    );
 
     const entry = (await store.listByRange(allTime))[0];
 
@@ -215,32 +227,34 @@ describe("start --at", () => {
     ["空文字", ""],
     ["区切りがない", "0930"],
   ])("--at が不正（%s）なら UserError で失敗する", async (_label, at) => {
-    await expect(createStartCommand(deps(lateNow)).run(["--at", at], io)).rejects.toThrow(
-      UserError,
-    );
+    await expect(
+      createStartCommand(deps(lateNow), testLoadConfig()).run(["--at", at], io),
+    ).rejects.toThrow(UserError);
   });
 
   it("--at の値が無い場合は UserError で失敗する", async () => {
-    await expect(createStartCommand(deps(lateNow)).run(["--at"], io)).rejects.toThrow(UserError);
+    await expect(
+      createStartCommand(deps(lateNow), testLoadConfig()).run(["--at"], io),
+    ).rejects.toThrow(UserError);
   });
 
   it("--at の次が別のオプションなら値が無いものとして失敗する", async () => {
-    await expect(createStartCommand(deps(lateNow)).run(["--at", "--note"], io)).rejects.toThrow(
-      UserError,
-    );
+    await expect(
+      createStartCommand(deps(lateNow), testLoadConfig()).run(["--at", "--note"], io),
+    ).rejects.toThrow(UserError);
   });
 });
 
 describe("start --at が未来のとき", () => {
   it("UserError で失敗する", async () => {
     await expect(
-      createStartCommand(deps(localTime(9, 0))).run(["--at", "09:30"], io),
+      createStartCommand(deps(localTime(9, 0)), testLoadConfig()).run(["--at", "09:30"], io),
     ).rejects.toThrow(UserError);
   });
 
   it("何も保存しない（実行中エントリを作らない）", async () => {
     await Promise.resolve(
-      createStartCommand(deps(localTime(9, 0))).run(["--at", "09:30"], io),
+      createStartCommand(deps(localTime(9, 0)), testLoadConfig()).run(["--at", "09:30"], io),
     ).catch(() => undefined);
 
     expect(await store.listByRange(allTime)).toHaveLength(0);
@@ -249,12 +263,12 @@ describe("start --at が未来のとき", () => {
 
   it("1秒でも未来なら失敗する（境界）", async () => {
     await expect(
-      createStartCommand(deps(localTime(9, 29, 59))).run(["--at", "09:30"], io),
+      createStartCommand(deps(localTime(9, 29, 59)), testLoadConfig()).run(["--at", "09:30"], io),
     ).rejects.toThrow(UserError);
   });
 
   it("現在時刻と同じ時刻なら成功する（境界）", async () => {
-    await createStartCommand(deps(localTime(9, 30))).run(["--at", "09:30"], io);
+    await createStartCommand(deps(localTime(9, 30)), testLoadConfig()).run(["--at", "09:30"], io);
 
     expect(await store.listByRange(allTime)).toHaveLength(1);
   });
@@ -264,24 +278,28 @@ describe("start の未知のオプション", () => {
   it.each([["--help"], ["--version"], ["--unknown"]])(
     "%s は作業名にせず UserError で失敗する",
     async (token) => {
-      await expect(createStartCommand(deps()).run([token], io)).rejects.toThrow(UserError);
+      await expect(createStartCommand(deps(), testLoadConfig()).run([token], io)).rejects.toThrow(
+        UserError,
+      );
     },
   );
 
   it("失敗したときは何も保存しない", async () => {
-    await Promise.resolve(createStartCommand(deps()).run(["--help"], io)).catch(() => undefined);
+    await Promise.resolve(createStartCommand(deps(), testLoadConfig()).run(["--help"], io)).catch(
+      () => undefined,
+    );
 
     expect(await store.listByRange(allTime)).toHaveLength(0);
   });
 
   it("作業名の中に含まれる `--` は弾かない", async () => {
-    await createStartCommand(deps()).run(["設計 -- 前半だけ"], io);
+    await createStartCommand(deps(), testLoadConfig()).run(["設計 -- 前半だけ"], io);
 
     expect((await store.listByRange(allTime))[0]?.note).toBe("設計 -- 前半だけ");
   });
 
   it("`-` 始まりの1文字ハイフンは作業名として扱う", async () => {
-    await createStartCommand(deps()).run(["-5分の中断あり"], io);
+    await createStartCommand(deps(), testLoadConfig()).run(["-5分の中断あり"], io);
 
     expect((await store.listByRange(allTime))[0]?.note).toBe("-5分の中断あり");
   });
@@ -292,9 +310,9 @@ describe("同時に打刻しても実行中は1つ（#11）", () => {
     // 「実行中を調べる」と「追記する」を別々にしていると、両方が「実行中は無い」と
     // 読んで2件できる。そうなると `stop` しても片方が残り、手詰まりになる
     const results = await Promise.allSettled([
-      createStartCommand(deps()).run(["ひとつめ"], io),
-      createStartCommand(deps()).run(["ふたつめ"], io),
-      createStartCommand(deps()).run(["みっつめ"], io),
+      createStartCommand(deps(), testLoadConfig()).run(["ひとつめ"], io),
+      createStartCommand(deps(), testLoadConfig()).run(["ふたつめ"], io),
+      createStartCommand(deps(), testLoadConfig()).run(["みっつめ"], io),
     ]);
 
     const running = (await store.listByRange(allTime)).filter((entry) => entry.end === undefined);
@@ -304,8 +322,8 @@ describe("同時に打刻しても実行中は1つ（#11）", () => {
 
   it("弾かれたほうは、実行中がある旨の利用者向けエラーになる", async () => {
     const results = await Promise.allSettled([
-      createStartCommand(deps()).run(["ひとつめ"], io),
-      createStartCommand(deps()).run(["ふたつめ"], io),
+      createStartCommand(deps(), testLoadConfig()).run(["ひとつめ"], io),
+      createStartCommand(deps(), testLoadConfig()).run(["ふたつめ"], io),
     ]);
 
     const rejected = results.filter((result) => result.status === "rejected");
@@ -318,11 +336,11 @@ describe("同時に打刻しても実行中は1つ（#11）", () => {
 
   it("並行 start のあとに stop すると、実行中が無くなる（手詰まりにならない）", async () => {
     await Promise.allSettled([
-      createStartCommand(deps()).run(["ひとつめ"], io),
-      createStartCommand(deps()).run(["ふたつめ"], io),
+      createStartCommand(deps(), testLoadConfig()).run(["ひとつめ"], io),
+      createStartCommand(deps(), testLoadConfig()).run(["ふたつめ"], io),
     ]);
 
-    await createStopCommand(deps(localTime(11, 0))).run([], io);
+    await createStopCommand(deps(localTime(11, 0)), testLoadConfig()).run([], io);
 
     expect(await store.findRunning()).toBeUndefined();
   });

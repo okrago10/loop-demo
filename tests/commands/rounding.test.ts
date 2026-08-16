@@ -16,6 +16,7 @@ import {
 } from "../../src/store/config-store.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
 import type { Store } from "../../src/store/store.js";
+import { testLoadConfig } from "../support/config.js";
 
 /**
  * 設定した丸めが集計コマンドに届く（#63）。
@@ -95,8 +96,8 @@ const CEIL_15 = { rounding: { unitMinutes: 15, mode: "ceil" } };
 
 /** 開始して終了した記録を1件作る。 */
 async function record(start: Date, end: Date, description: string): Promise<void> {
-  await createStartCommand(deps(start)).run([description], io);
-  await createStopCommand(deps(end)).run([], io);
+  await createStartCommand(deps(start), testLoadConfig()).run([description], io);
+  await createStopCommand(deps(end), testLoadConfig()).run([], io);
   out = [];
   err = [];
 }
@@ -407,7 +408,7 @@ describe("境界（DoD）", () => {
 
   it("実行中エントリを含む集計でも丸まる（終端が無い側の境界）", async () => {
     await writeConfig(CEIL_15);
-    await createStartCommand(deps(local(13, 9))).run(["設計 #work"], io);
+    await createStartCommand(deps(local(13, 9)), testLoadConfig()).run(["設計 #work"], io);
     out = [];
 
     // 現在時刻まで 8分。実行中なので `end` は無い
@@ -418,7 +419,7 @@ describe("境界（DoD）", () => {
 
   it("範囲より前に始まった実行中エントリでも丸まる（終端が無い側の境界）", async () => {
     // 前日の 23:56 に開始して止めていない。当日ぶんは 0:00〜0:04 の 4分
-    await createStartCommand(deps(local(12, 23, 56))).run(["徹夜 #work"], io);
+    await createStartCommand(deps(local(12, 23, 56)), testLoadConfig()).run(["徹夜 #work"], io);
     await writeConfig(CEIL_15);
     out = [];
 

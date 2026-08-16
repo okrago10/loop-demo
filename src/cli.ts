@@ -363,15 +363,15 @@ export function buildCommands(parts: CommandParts): readonly Command[] {
   const { deps, configStore, loadConfig, env, terminal, confirm } = parts;
 
   return [
-    createStartCommand(deps),
+    createStartCommand(deps, loadConfig),
     createStopCommand(deps, loadConfig),
-    createStatusCommand(deps),
-    createSwitchCommand(deps),
+    createStatusCommand(deps, loadConfig),
+    createSwitchCommand(deps, loadConfig),
     createTodayCommand(deps, loadConfig, terminal),
     createSummaryCommand(deps, loadConfig, terminal),
     createLogCommand(deps, loadConfig),
     createWeekCommand(deps, loadConfig, terminal),
-    createEditCommand(deps),
+    createEditCommand(deps, loadConfig),
     createRmCommand(deps, confirm),
     createExportCommand(deps, loadConfig),
     createConfigCommand(configStore, env),
