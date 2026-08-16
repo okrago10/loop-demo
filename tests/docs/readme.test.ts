@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { type Command, EXIT_OK, run, UserError } from "../../src/cli.js";
+import { buildCommands, type Command, EXIT_OK, run, UserError } from "../../src/cli.js";
 import { createConfigCommand } from "../../src/commands/config.js";
 import { createEditCommand } from "../../src/commands/edit.js";
 import { createExportCommand } from "../../src/commands/export.js";
@@ -17,6 +17,7 @@ import { createSummaryCommand, createTodayCommand } from "../../src/commands/sum
 import { createSwitchCommand } from "../../src/commands/switch.js";
 import { createWeekCommand } from "../../src/commands/week.js";
 import { CONFIG_KEYS } from "../../src/domain/config.js";
+import { PLAIN_TERMINAL } from "../../src/format/terminal.js";
 import { parsePeriodExpression } from "../../src/domain/period-expression.js";
 import { createJsonConfigStore, loadEffectiveConfig } from "../../src/store/config-store.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
@@ -94,21 +95,64 @@ function steppingClock(base: Date): () => Date {
   };
 }
 
-/** `src/cli.ts` の `buildCommands` が組み立てる 12 個に対応する生成関数。 */
-const FACTORIES = [
-  "createStartCommand",
-  "createStopCommand",
-  "createStatusCommand",
-  "createSwitchCommand",
-  "createTodayCommand",
-  "createSummaryCommand",
-  "createLogCommand",
-  "createWeekCommand",
-  "createEditCommand",
-  "createRmCommand",
-  "createExportCommand",
-  "createConfigCommand",
-];
+/**
+ * コマンド一覧の突き合わせ。**`tock <name>` の名前だけを見る。**
+ *
+ * 以前はここで `src/cli.ts` をソースの文字列として読み、生成関数の名前
+ * （`create*Command`）を正規表現で拾っていた。**一覧の中身が正しくても書き方を
+ * 変えると落ちる**ので、`buildCommands` の改名と戻り値の形の変更だけで実際に落ちた（#102）。
+ *
+ * 名前の並びなら、関数名・戻り値の形・整形のどれにも現れない。
+ */
+function commandNames(commands: readonly Command[]): string[] {
+  return commands.map((command) => command.name).toSorted();
+}
+
+/**
+ * 本物（`src/cli.ts`）とこのテストが組み立てた一覧が一致することを主張する。
+ *
+ * **空同士で素通しさせない。** 一覧の取り出し方を間違えて両方が空になっても
+ * 突き合わせ自体は通ってしまい、検査が何も見ていない状態に気づけない。
+ */
+function expectSameCommands(real: readonly Command[], registry: readonly Command[]): void {
+  expect(commandNames(real)).not.toEqual([]);
+  expect(commandNames(real)).toEqual(commandNames(registry));
+}
+
+/**
+ * `src/cli.ts` が実際に組み立てる一覧を、一時ディレクトリの上で得る。
+ *
+ * **`buildRuntime` は呼べない。** 内部で `resolveStorePath(process.env, homedir())` を
+ * 呼ぶので、テストから呼ぶと実ユーザーの `~/.tock` を指すパスが組み立てられる
+ * （`CLAUDE.md`「テストがユーザーの実際の `~/.tock` を読み書きしないこと」）。
+ * 一覧の組み立てだけを切り出した `buildCommands` に、行き先を渡して呼ぶ。
+ */
+function realCommandsIn(dir: string): readonly Command[] {
+  const configStore = createJsonConfigStore(join(dir, "config.json"));
+
+  return buildCommands({
+    deps: {
+      store: createJsonlStore(join(dir, "entries.jsonl")),
+      now: () => new Date(),
+      newId: () => "real",
+    },
+    configStore,
+    loadConfig: () => loadEffectiveConfig(configStore, {}),
+    env: {},
+    terminal: PLAIN_TERMINAL,
+    confirm: refuseConfirm,
+  });
+}
+
+/** 名前だけを持つコマンド。突き合わせの検査で、増減と並び替えを作るために使う。 */
+function fake(name: string): Command {
+  return {
+    name,
+    summary: `${name} のダミー`,
+    usage: { options: [] },
+    run: () => undefined,
+  };
+}
 
 interface Registry {
   readonly commands: readonly Command[];
@@ -504,23 +548,77 @@ describe("実装されていない機能が書かれていない（DoD）", () =
   });
 
   it("`src/cli.ts` が組み立てるコマンドと、このテストが組み立てるコマンドが一致する", async () => {
-    // **コマンド一覧は `commands: [ ... ]` として読む。** `buildRuntime` は
-    // コマンドと実行前の警告（#24）をまとめて返すので、`return` の直後が配列とは限らない。
-    // 名前で位置を決めているぶん、`cli.ts` の書き方を変えるとここも直す必要がある
-    const source = await readFile(join(ROOT, "src", "cli.ts"), "utf8");
-    const from = source.indexOf("function buildRuntime(");
-    expect(from).toBeGreaterThan(-1);
+    // **本物を呼んで一覧を得る。** README の実行例は下の `buildRegistry` が組み立てた
+    // 一式で走らせる（一時ディレクトリを使うため）ので、本物との食い違いをここで見張る。
+    // これが無いと、コマンドを1つ足しても README の検証がそれを見ないまま通る
+    const dir = await mkdtemp(join(tmpdir(), "tock-readme-"));
+    try {
+      expectSameCommands(
+        realCommandsIn(dir),
+        buildRegistry(dir, steppingClock(LATE_IN_DAY)).commands,
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
 
-    const listStart = source.indexOf("commands: [", from);
-    const listEnd = source.indexOf("],", listStart);
-    expect(listStart).toBeGreaterThan(-1);
-    expect(listEnd).toBeGreaterThan(listStart);
+/**
+ * コマンド一覧の突き合わせそのものの検査（#102）。
+ *
+ * 上の1件は「実装とテストが一致している」ことしか言わない。**一致していないときに
+ * 落ちるか**は、それだけでは分からない。増減の両方向と、空同士で素通ししないことを
+ * ここで固定する。
+ */
+describe("コマンド一覧の突き合わせ（#102）", () => {
+  it("並び順だけが違う場合は一致とみなす", () => {
+    const real = [fake("start"), fake("stop"), fake("status")];
+    const registry = [fake("status"), fake("start"), fake("stop")];
 
-    const used = [
-      ...new Set(source.slice(listStart, listEnd).match(/create[A-Za-z]*Command/g) ?? []),
-    ];
+    expect(() => {
+      expectSameCommands(real, registry);
+    }).not.toThrow();
+  });
 
-    expect(used.toSorted()).toEqual(FACTORIES.toSorted());
+  it("実装側に1つ多いと落ちる（境界: コマンドを1つ足した）", () => {
+    const registry = [fake("start"), fake("stop")];
+    const real = [...registry, fake("switch")];
+
+    expect(() => {
+      expectSameCommands(real, registry);
+    }).toThrow();
+  });
+
+  it("実装側に1つ足りないと落ちる（境界: コマンドを1つ減らした）", () => {
+    const registry = [fake("start"), fake("stop"), fake("switch")];
+    const real = [fake("start"), fake("stop")];
+
+    expect(() => {
+      expectSameCommands(real, registry);
+    }).toThrow();
+  });
+
+  it("両方が空だと素通しせずに落ちる（境界: 検査対象ゼロで合格しない）", () => {
+    expect(() => {
+      expectSameCommands([], []);
+    }).toThrow();
+  });
+
+  it("生成関数の名前・戻り値の形・整形が違っても、名前が同じなら落ちない", () => {
+    // 本物は配列で、テスト側はオブジェクトに包んだうえで並びも違う。
+    // ソースを読んでいたころはこの形の違いだけで落ちた（#102 の再現）
+    const asArray = [fake("start"), fake("stop")];
+    const wrapped = { commands: [fake("stop"), fake("start")] };
+
+    expect(() => {
+      expectSameCommands(asArray, wrapped.commands);
+    }).not.toThrow();
+  });
+
+  it("この検査が `src/cli.ts` をソースの文字列として読んでいない（#102 の回帰）", async () => {
+    const self = await readFile(join(ROOT, "tests", "docs", "readme.test.ts"), "utf8");
+
+    expect(/readFile\([^;]*\bsrc\b[^;]*cli/.test(self)).toBe(false);
   });
 });
 
