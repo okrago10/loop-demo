@@ -89,8 +89,8 @@ async function writeConfig(raw: unknown): Promise<void> {
 }
 
 /** 1件記録する。 */
-async function record(): Promise<void> {
-  await createStartCommand(deps(local(12, 9))).run(["設計 #work"], io);
+async function record(description = "設計 #work"): Promise<void> {
+  await createStartCommand(deps(local(12, 9))).run([description], io);
   await createStopCommand(deps(local(12, 10))).run([], io);
   out = [];
   err = [];
@@ -310,5 +310,48 @@ describe("不正な値の扱い", () => {
 
     await expect(runExport(["--format", "yaml"])).rejects.toThrow(UserError);
     expect(err).toEqual([]);
+  });
+});
+
+describe("`--sanitize` との組み合わせ（#62 との合流点）", () => {
+  /**
+   * **`--format` を省ける（#65）ようになったことで、`--sanitize` の検査に穴が開く。**
+   *
+   * #62 は「json には無害化を当てない」を `--format` の値で判定していた。省略できるように
+   * なると、形式は `defaultFormat` の解決を待たないと決まらない。判定を引数だけで済ませたまま
+   * にすると、**設定が json でも `--sanitize` が通ってしまう。**
+   */
+
+  it("`defaultFormat` が csv なら、`--format` を省いても `--sanitize` が効く", async () => {
+    await record("=1+1");
+    await writeConfig({ defaultFormat: "csv" });
+
+    await runExport(["--sanitize"]);
+
+    expect(isCsv()).toBe(true);
+    expect(out.join("\n")).toContain("'=1+1");
+  });
+
+  it("**`defaultFormat` が json なら、`--format` を省いた `--sanitize` を弾く**", async () => {
+    await record("=1+1");
+    await writeConfig({ defaultFormat: "json" });
+
+    await expect(runExport(["--sanitize"])).rejects.toThrow(/--sanitize は --format csv/);
+  });
+
+  it("`--format json --sanitize` は設定を読む前に弾く（警告が先に出ない）", async () => {
+    await record("=1+1");
+    await writeConfig({ defaultFormat: "yaml" });
+
+    await expect(runExport(["--format", "json", "--sanitize"])).rejects.toThrow(UserError);
+    expect(err).toEqual([]);
+  });
+
+  it("設定が無くても `--format csv --sanitize` は通る", async () => {
+    await record("=1+1");
+
+    await runExport(["--format", "csv", "--sanitize"]);
+
+    expect(out.join("\n")).toContain("'=1+1");
   });
 });

@@ -1,6 +1,6 @@
 import type { Entry } from "../domain/entry.js";
 import { durationMinutes } from "../domain/period.js";
-import { csvLine } from "./csv.js";
+import { csvLine, sanitizeCsvValue } from "./csv.js";
 
 /**
  * 記録を機械が読む形に整える。
@@ -18,6 +18,17 @@ import { csvLine } from "./csv.js";
  */
 export const CSV_HEADER = ["id", "start", "end", "duration_min", "tags", "note"] as const;
 
+/** CSV の書き出し方。 */
+export interface CsvOptions {
+  /**
+   * 表計算ソフトが数式として読む値を無害化するか（#62）。
+   *
+   * **既定は無害化しない。** 値を書き換えることになり、「書き出したものをそのまま
+   * 読み戻せる」（#23）と両立しないため、利用者が `--sanitize` で選ぶ。
+   */
+  readonly sanitize?: boolean;
+}
+
 /** タグを1つの欄にまとめるときの区切り。 */
 const TAG_SEPARATOR = " ";
 
@@ -32,8 +43,12 @@ const TAG_SEPARATOR = " ";
  * **記録が0件でも見出し行だけは出す。** 列名のない空のファイルを表計算で開いても
  * 何のデータか分からず、取り込み側の処理も列を見つけられない。
  */
-export function formatCsvLines(entries: readonly Entry[]): string[] {
-  return [csvLine([...CSV_HEADER]), ...entries.map((entry) => csvLine(cellsOf(entry)))];
+export function formatCsvLines(entries: readonly Entry[], options: CsvOptions = {}): string[] {
+  // **見出し行は無害化しない。** 列名はこちらが決めた固定の文字列で、危険な先頭文字を
+  // 持たない（`CSV_HEADER`）。通しても変わらないが、通す理由も無い
+  const cell = options.sanitize === true ? sanitizeCsvValue : (value: string): string => value;
+
+  return [csvLine([...CSV_HEADER]), ...entries.map((entry) => csvLine(cellsOf(entry).map(cell)))];
 }
 
 /**
