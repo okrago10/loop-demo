@@ -1,6 +1,7 @@
 import { UserError } from "../cli.js";
 import type { Entry } from "../domain/entry.js";
 import { startedAt } from "../domain/entry.js";
+import { formatMoment } from "../format/time.js";
 
 /**
  * 保存されている記録が、そのまま計算に使えるかを確かめる。
@@ -38,6 +39,12 @@ import { startedAt } from "../domain/entry.js";
  *
  * 時計のずれが**同じ日に収まっている**場合は `edit --start` でも直せるが、
  * 日付ごとずれている場合は直せない。**どちらでも通る道**を案内する。
+ *
+ * **時刻は `formatMoment` で出す（#45）。** ここは利用者に見せる文言なので、保存形式の
+ * まま出すと `status` は `09:30:00`、このエラーだけ `2026-08-12T00:30:00.000Z` になる。
+ * `--at` と表示が対応しないという #45 の発端が、エラーの経路にだけ残る（レビューで指摘）。
+ * この記録は**日付ごとずれている場合がある**ので、`formatMoment` が別日と判定して
+ * 日付を付けてくれることにも意味がある。
  */
 export function assertStartNotInFuture(entry: Entry, now: Date): void {
   const start = startedAt(entry);
@@ -46,7 +53,7 @@ export function assertStartNotInFuture(entry: Entry, now: Date): void {
   }
 
   throw new UserError(
-    `記録の開始時刻が未来です: ${entry.start}（現在は ${now.toISOString()}）。` +
+    `記録の開始時刻が未来です: ${formatMoment(start, now)}（現在は ${formatMoment(now, now)}）。` +
       `時計がずれていた可能性があります。tock rm ${entry.id} で消してから打ち直してください`,
   );
 }

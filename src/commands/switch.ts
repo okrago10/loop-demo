@@ -1,7 +1,8 @@
 import { type CliIo, type Command, UserError } from "../cli.js";
-import { createEntry, type Entry } from "../domain/entry.js";
+import { createEntry, type Entry, startedAt } from "../domain/entry.js";
 import { durationMs } from "../domain/period.js";
 import { formatDuration } from "../format/duration.js";
+import { formatMoment } from "../format/time.js";
 import { type CommandDeps, parseDescription, rejectUnknownArgs, resolveAt } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 
@@ -58,7 +59,7 @@ export function createSwitchCommand(deps: CommandDeps): Command {
         io.out(`停止しました: ${formatDuration(durationMs(stopped))}`);
       }
       io.out(`開始しました: ${label(note, tags)}`);
-      io.out(`開始時刻: ${next.start}`);
+      io.out(`開始時刻: ${formatMoment(startedAt(next), deps.now())}`);
     },
   };
 }
