@@ -251,7 +251,7 @@ describe("どのコマンドの前にも警告が出る（DoD）", () => {
     load: LoadConfig = defaultConfig,
   ): Promise<number> {
     const commands: readonly Command[] = [
-      createStatusCommand(deps(now)),
+      createStatusCommand(deps(now), testLoadConfig()),
       createStopCommand(deps(now), load),
       { name: "noop", summary: "何もしない", usage: { options: [] }, run: () => undefined },
     ];

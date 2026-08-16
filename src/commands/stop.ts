@@ -1,9 +1,10 @@
 import { type Command, type CliIo, UserError } from "../cli.js";
 import { maxRunningMsOf } from "../domain/config.js";
-import { createEntry } from "../domain/entry.js";
+import { createEntry, endedAt } from "../domain/entry.js";
 import { autoStopAt } from "../domain/overrun.js";
 import { durationMs } from "../domain/period.js";
 import { formatDuration } from "../format/duration.js";
+import { formatMoment } from "../format/time.js";
 import {
   type CommandDeps,
   loadWarnedConfig,
@@ -54,7 +55,11 @@ export function createStopCommand(deps: CommandDeps, loadConfig: LoadConfig): Co
       // **設定を先に読む（#64）。** `--at` の解釈にゾーンが要る。`--auto` のときだけ
       // 読む形だったが、そうすると `--at` のゾーンが指定の有無で変わってしまう
       const config = await loadWarnedConfig(loadConfig, io);
-      const { at, rest: remaining } = resolveAt(rest, deps.now(), config.timezone);
+
+      // **`now` は1回だけ取る**（`start` と同じ形）。`--at` の解釈と表示で別々に呼ぶと、
+      // 日付が変わる瞬間だけ「同じ日か」の判定が2つの時刻に基づくことになる（レビューで指摘）
+      const now = deps.now();
+      const { at, rest: remaining } = resolveAt(rest, now, config.timezone);
       rejectUnknownArgs(remaining, { command: "stop", usage: USAGE });
 
       // **`--at` と `--auto` は両立しない。** どちらも終了時刻を決める指定なので、
@@ -99,7 +104,17 @@ export function createStopCommand(deps: CommandDeps, loadConfig: LoadConfig): Co
       });
 
       io.out(`停止しました: ${formatDuration(durationMs(stopped))}`);
-      io.out(`終了時刻: ${stopped.end ?? ""}`);
+
+      // **終了時刻が無ければ落とす。`now` で代用しない。** ここに来る `stopped` は
+      // `end` を必ず持つ（`createEntry` に `at` を渡している）が、万一欠けたときに
+      // 「今」を出すと**成功したように見える**。以前は空文字を出していたので、壊れて
+      // いることが画面から分かった。代用はそれを隠す方向の変更になる（レビューで指摘）
+      const end = endedAt(stopped);
+      if (end === undefined) {
+        throw new Error(`停止した記録に終了時刻がありません: ${stopped.id}`);
+      }
+
+      io.out(`終了時刻: ${formatMoment(end, now, config.timezone)}`);
     },
   };
 }

@@ -2,6 +2,7 @@ import { type CliIo, UserError } from "../cli.js";
 import { parseTags } from "../domain/tag.js";
 import { instantOf, wallClockIn } from "../domain/timezone.js";
 import { type CommandUsage, formatUsageBlock } from "../format/help.js";
+import { formatClockSeconds } from "../format/time.js";
 import type { LoadConfig, ResolvedConfig } from "../store/config-store.js";
 import type { Store } from "../store/store.js";
 
@@ -169,20 +170,11 @@ export function resolveClockTimeOn(
 
   if (at.getTime() > now.getTime()) {
     throw new UserError(
-      `${label} に未来の時刻は指定できません: ${value}（現在は ${formatClockTime(now, timeZone)}）`,
+      `${label} に未来の時刻は指定できません: ${value}（現在は ${formatClockSeconds(now, timeZone)}）`,
     );
   }
 
   return at;
-}
-
-/** エラーメッセージ用に、指定したゾーンの壁時計を `HH:MM:SS` で表す。 */
-function formatClockTime(time: Date, timeZone: string): string {
-  const wall = wallClockIn(time, timeZone);
-
-  return [wall.hours, wall.minutes, wall.seconds]
-    .map((part) => String(part).padStart(2, "0"))
-    .join(":");
 }
 
 /**

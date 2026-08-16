@@ -1,7 +1,8 @@
 import { type CliIo, type Command, UserError } from "../cli.js";
-import { createEntry, type Entry } from "../domain/entry.js";
+import { createEntry, type Entry, startedAt } from "../domain/entry.js";
 import { durationMs } from "../domain/period.js";
 import { formatDuration } from "../format/duration.js";
+import { formatMoment } from "../format/time.js";
 import type { LoadConfig } from "../store/config-store.js";
 import {
   type CommandDeps,
@@ -39,7 +40,10 @@ export function createSwitchCommand(deps: CommandDeps, loadConfig: LoadConfig): 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
       // **設定を先に読む（#64）。** `--at` の解釈にゾーンが要る
       const config = await loadWarnedConfig(loadConfig, io);
-      const { at, rest } = resolveAt(argv, deps.now(), config.timezone);
+      // **`now` は1回だけ取る**（`start` / `stop` と同じ形）。`--at` の解釈と表示で
+      // 別々に呼ぶと、日付が変わる瞬間だけ「同じ日か」の判定が2つの時刻に基づく
+      const now = deps.now();
+      const { at, rest } = resolveAt(argv, now, config.timezone);
       rejectUnknownArgs(rest, { command: "switch", usage: USAGE });
       const { tags, note } = parseDescription(rest.join(" "));
 
@@ -67,7 +71,7 @@ export function createSwitchCommand(deps: CommandDeps, loadConfig: LoadConfig): 
         io.out(`停止しました: ${formatDuration(durationMs(stopped))}`);
       }
       io.out(`開始しました: ${label(note, tags)}`);
-      io.out(`開始時刻: ${next.start}`);
+      io.out(`開始時刻: ${formatMoment(startedAt(next), now, config.timezone)}`);
     },
   };
 }

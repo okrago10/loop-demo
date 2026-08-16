@@ -1,5 +1,6 @@
 import { type Command, type CliIo, UserError } from "../cli.js";
-import { createEntry } from "../domain/entry.js";
+import { createEntry, startedAt } from "../domain/entry.js";
+import { formatMoment } from "../format/time.js";
 import type { LoadConfig } from "../store/config-store.js";
 import {
   type CommandDeps,
@@ -37,7 +38,8 @@ export function createStartCommand(deps: CommandDeps, loadConfig: LoadConfig): C
       const config = await loadWarnedConfig(loadConfig, io);
 
       // 引数の検査を保存より先に済ませる。打ち間違いで状態が変わらないようにする
-      const { at, rest } = resolveAt(argv, deps.now(), config.timezone);
+      const now = deps.now();
+      const { at, rest } = resolveAt(argv, now, config.timezone);
       rejectUnknownArgs(rest, { command: "start", usage: USAGE });
       const { tags, note } = parseDescription(rest.join(" "));
 
@@ -47,7 +49,8 @@ export function createStartCommand(deps: CommandDeps, loadConfig: LoadConfig): C
         const running = await deps.store.findRunning();
         if (running !== undefined) {
           throw new UserError(
-            `すでに実行中の作業があります（開始: ${running.start}）。先に tock stop してください`,
+            `すでに実行中の作業があります（開始: ${formatMoment(startedAt(running), now, config.timezone)}）。` +
+              "先に tock stop してください",
           );
         }
 
@@ -64,7 +67,7 @@ export function createStartCommand(deps: CommandDeps, loadConfig: LoadConfig): C
       const label = note ?? "（名前なし）";
       const tagText = tags.length === 0 ? "" : ` [${tags.map((tag) => `#${tag}`).join(" ")}]`;
       io.out(`開始しました: ${label}${tagText}`);
-      io.out(`開始時刻: ${entry.start}`);
+      io.out(`開始時刻: ${formatMoment(startedAt(entry), now, config.timezone)}`);
     },
   };
 }

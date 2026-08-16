@@ -66,7 +66,7 @@ beforeEach(async () => {
   commands = [
     createStartCommand(deps, testLoadConfig()),
     createStopCommand(deps, testLoadConfig()),
-    createStatusCommand(deps),
+    createStatusCommand(deps, testLoadConfig()),
     createSwitchCommand(deps, testLoadConfig()),
     createTodayCommand(deps, loadConfig),
     createSummaryCommand(deps, loadConfig),

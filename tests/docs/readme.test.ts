@@ -151,7 +151,7 @@ function buildRegistry(dir: string, now: () => Date): Registry {
     commands: [
       createStartCommand(deps, testLoadConfig()),
       createStopCommand(deps, testLoadConfig()),
-      createStatusCommand(deps),
+      createStatusCommand(deps, loadConfig),
       createSwitchCommand(deps, testLoadConfig()),
       createTodayCommand(deps, loadConfig),
       createSummaryCommand(deps, loadConfig),

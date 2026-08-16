@@ -46,7 +46,7 @@ export function formatLogLines(
   const cells = rows.map((row) => ({
     id: shortenId(row.entryId, idLength),
     day: formatDay(row.start, timeZone),
-    range: timeRange(row),
+    range: timeRange(row, timeZone),
     duration: formatDuration(row.durationMs),
     label: labelOf(row),
   }));
@@ -70,10 +70,10 @@ export function formatLogLines(
 }
 
 /** 開始と終了を `09:00-10:30` の形で表す。実行中は終了の側を `実行中` にする。 */
-function timeRange(row: LogRow): string {
-  const end = row.end === undefined ? RUNNING_LABEL : formatClock(row.end);
+function timeRange(row: LogRow, timeZone: string): string {
+  const end = row.end === undefined ? RUNNING_LABEL : formatClock(row.end, timeZone);
 
-  return `${formatClock(row.start)}-${end}`;
+  return `${formatClock(row.start, timeZone)}-${end}`;
 }
 
 /**

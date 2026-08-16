@@ -352,7 +352,7 @@ function buildRuntime(): Pick<CliDeps, "commands" | "noticesBeforeRun"> {
     commands: [
       createStartCommand(deps, loadConfig),
       createStopCommand(deps, loadConfig),
-      createStatusCommand(deps),
+      createStatusCommand(deps, loadConfig),
       createSwitchCommand(deps, loadConfig),
       createTodayCommand(deps, loadConfig, terminal),
       createSummaryCommand(deps, loadConfig, terminal),
