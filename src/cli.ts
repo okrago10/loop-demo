@@ -379,13 +379,41 @@ export function buildCommands(parts: CommandParts): readonly Command[] {
 }
 
 /**
+ * `buildRuntime` が外の世界から受け取るもの（#106）。
+ *
+ * **保存先・端末・確認の取り方・時計をすべて引数にする。** 以前は内部で
+ * `process.env` と `homedir()` を読んでいたため、テストから呼ぶと実ユーザーの
+ * `~/.tock` を指すパスが組み立てられ、**呼べなかった**（`CLAUDE.md`「テストが
+ * ユーザーの実際の `~/.tock` を読み書きしないこと」）。
+ *
+ * 呼べないぶん、コマンド一覧の突き合わせは `buildCommands` までしか見られず、
+ * **`buildRuntime` が一覧に手を加えても誰も気づかなかった**——`--help` に同じ
+ * コマンドが2回出る状態で全件が通る穴があった。
+ */
+export interface RuntimeEnvironment {
+  readonly env: Readonly<Record<string, string | undefined>>;
+  /** ホームディレクトリ。`TOCK_DIR` が無いときの保存先の基点になる。 */
+  readonly home: string;
+  readonly terminal: Terminal;
+  readonly confirm: Confirm;
+  readonly now: () => Date;
+  readonly newId: () => string;
+  /** 読めない行の報告先（#85）。 */
+  readonly err: (line: string) => void;
+}
+
+/**
  * 実際に使うサブコマンドと、実行前の警告を組み立てる。
  *
- * 保存先の決定と現在時刻・採番の取得はここでだけ行う。`run` と各コマンドは注入された
- * ものしか使わないので、テストは一時ディレクトリと固定した時刻で完全に再現できる。
+ * **これが `tock` に配られる一覧そのもの。** `buildCommands` の結果をそのまま渡すが、
+ * ここで手を加えれば当然変わる。テストから同じ形で呼べるようにしてあるので、
+ * 増減も重複も突き合わせで見つかる（#106）。
  */
-function buildRuntime(err: (line: string) => void): Pick<CliDeps, "commands" | "noticesBeforeRun"> {
-  const storePath = resolveStorePath(process.env, homedir());
+export function buildRuntime(
+  environment: RuntimeEnvironment,
+): Pick<CliDeps, "commands" | "noticesBeforeRun"> {
+  const { env, home, terminal, confirm, now, newId, err } = environment;
+  const storePath = resolveStorePath(env, home);
   const deps = {
     // **読めない行を飛ばしたら stderr に件数を出す（#85・案2）。** 黙って飛ばすと、
     // 手で編集して壊した記録が消えたことに気づけない。行そのものは消していないので、
@@ -396,23 +424,23 @@ function buildRuntime(err: (line: string) => void): Pick<CliDeps, "commands" | "
           `行そのものは消していません`,
       );
     }),
-    now: () => new Date(),
-    newId: randomId,
+    now,
+    newId,
   };
 
   // 設定は必要になったコマンドがその場で読む。すべての起動でファイルを読むと、
   // 設定を使わない打刻まで設定ファイルの状態に引きずられる
-  const configStore = createJsonConfigStore(resolveConfigPath(process.env, homedir()));
-  const loadConfig = () => loadEffectiveConfig(configStore, process.env);
+  const configStore = createJsonConfigStore(resolveConfigPath(env, home));
+  const loadConfig = () => loadEffectiveConfig(configStore, env);
 
   return {
     commands: buildCommands({
       deps,
       configStore,
       loadConfig,
-      env: process.env,
-      terminal: resolveTerminal(process.stdout),
-      confirm: confirmOnStdin,
+      env,
+      terminal,
+      confirm,
     }),
     noticesBeforeRun: () => overrunNotices(deps.store, loadConfig, deps.now()),
   };
@@ -520,7 +548,15 @@ if (invokedAsEntryPoint()) {
     out: createLineWriter(process.stdout, reportWriteError),
     err: errWriter,
     version: readVersion,
-    ...buildRuntime(errWriter),
+    ...buildRuntime({
+      env: process.env,
+      home: homedir(),
+      terminal: resolveTerminal(process.stdout),
+      confirm: confirmOnStdin,
+      now: () => new Date(),
+      newId: randomId,
+      err: errWriter,
+    }),
   });
 
   // `EPIPE` は終了コードを変えない。読み手が先に終わるのは正常な操作であり、
