@@ -6,7 +6,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { UserError } from "../../src/cli.js";
 import { createConfigCommand } from "../../src/commands/config.js";
 import { createStartCommand } from "../../src/commands/start.js";
+import { createLogCommand } from "../../src/commands/log.js";
+import { createStatusCommand } from "../../src/commands/status.js";
 import { createStopCommand } from "../../src/commands/stop.js";
+import { createSwitchCommand } from "../../src/commands/switch.js";
 import { createTodayCommand } from "../../src/commands/summary.js";
 import { createJsonConfigStore, loadEffectiveConfig } from "../../src/store/config-store.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
@@ -153,6 +156,108 @@ describe("--at の解釈が設定したタイムゾーンに従う（DoD）", ()
     await expect(
       createStartCommand(deps(NOW), loadConfigIn("Asia/Tokyo")).run(["x", "--at", "08:00"], io),
     ).rejects.toThrow(/07:00:00/);
+  });
+});
+
+describe("画面に出る時刻も設定したタイムゾーンに従う", () => {
+  /**
+   * **mutation test で見つかった穴を塞ぐ（#64 / PR #97）。**
+   *
+   * 表示を実行環境のゾーンで読む形に戻しても、既存のテストは1件も落ちなかった。
+   * CI の TZ が UTC で、比較対象の「実行環境のゾーン」がたまたま UTC と一致するため。
+   * **設定ゾーンと実行環境ゾーンが違うことを、テスト側で保証しないと検査にならない。**
+   *
+   * ここでは常に UTC と Asia/Tokyo の両方を確かめる。どちらの CI で走っても、
+   * 少なくとも片方は実行環境と食い違うので、素通りしない。
+   */
+
+  /** `見出し: 値` の値を取り出す。 */
+  function valueOf(prefix: string): string {
+    const line = out.find((candidate) => candidate.startsWith(prefix));
+
+    return line === undefined ? "" : line.slice(prefix.length);
+  }
+
+  it("実行環境のゾーンと設定のゾーンが、この検査で必ず食い違う（前提の確認）", () => {
+    // これが成り立たないと、下の検査は「たまたま一致しているだけ」で通ってしまう
+    expect(["UTC", "Asia/Tokyo"].filter((zone) => zone !== RUNTIME_TZ).length).toBeGreaterThan(0);
+  });
+
+  it("**start の開始時刻が設定のゾーンで出る**", async () => {
+    // 同じ瞬間（12日 22:00 UTC）が、UTC では 22:00、東京では翌日 07:00
+    await createStartCommand(deps(NOW), loadConfigIn("UTC")).run(["a"], io);
+    expect(valueOf("開始時刻: ")).toBe("22:00:00");
+
+    out = [];
+    await createStopCommand(deps(NOW), loadConfigIn("UTC")).run([], io);
+    out = [];
+
+    await createStartCommand(deps(NOW), loadConfigIn("Asia/Tokyo")).run(["b"], io);
+    expect(valueOf("開始時刻: ")).toBe("07:00:00");
+  });
+
+  it("**stop の終了時刻が設定のゾーンで出る**", async () => {
+    await createStartCommand(deps(NOW), loadConfigIn("Asia/Tokyo")).run(["a"], io);
+    out = [];
+
+    await createStopCommand(deps(NOW), loadConfigIn("Asia/Tokyo")).run([], io);
+    expect(valueOf("終了時刻: ")).toBe("07:00:00");
+  });
+
+  it("**status の開始時刻が設定のゾーンで出る**", async () => {
+    await createStartCommand(deps(NOW), loadConfigIn("UTC")).run(["a"], io);
+    out = [];
+
+    await createStatusCommand(deps(NOW), loadConfigIn("UTC")).run([], io);
+    expect(valueOf("開始: ")).toBe("22:00:00");
+
+    out = [];
+    await createStatusCommand(deps(NOW), loadConfigIn("Asia/Tokyo")).run([], io);
+    expect(valueOf("開始: ")).toBe("07:00:00");
+  });
+
+  it("**switch の開始時刻が設定のゾーンで出る**", async () => {
+    await createStartCommand(deps(NOW), loadConfigIn("Asia/Tokyo")).run(["a"], io);
+    out = [];
+
+    await createSwitchCommand(deps(NOW), loadConfigIn("Asia/Tokyo")).run(["b"], io);
+    expect(valueOf("開始時刻: ")).toBe("07:00:00");
+  });
+
+  it("**log の一覧の時刻が設定のゾーンで出る**", async () => {
+    await createStartCommand(deps(NOW), loadConfigIn("UTC")).run(["a", "--at", "01:30"], io);
+    out = [];
+
+    await createLogCommand(deps(NOW), loadConfigIn("UTC")).run([], io);
+    expect(out[0]).toContain("01:30-");
+
+    out = [];
+    // 同じ記録（01:30 UTC）は東京では 10:30
+    await createLogCommand(deps(NOW), loadConfigIn("Asia/Tokyo")).run([], io);
+    expect(out[0]).toContain("10:30-");
+  });
+
+  it("**同じ記録が、ゾーンによって日付付きになったりならなかったりする**（境界: 終端のないデータ）", async () => {
+    // 記録は 12日 01:30 UTC で未終了。基準の瞬間（`NOW`）は 12日 22:00 UTC。
+    //   UTC   : 記録も「今日」も12日 → 同じ日なので時刻だけ
+    //   東京  : 記録は 12日 10:30、「今日」は13日 → 別日なので日付が付く
+    // 「同じ日か」の判定もゾーンで決まることを、1つの記録で両側から見る
+    await createStartCommand(deps(NOW), loadConfigIn("UTC")).run(["a", "--at", "01:30"], io);
+    out = [];
+
+    await createStatusCommand(deps(NOW), loadConfigIn("UTC")).run([], io);
+    expect(valueOf("開始: ")).toBe("01:30:00");
+
+    out = [];
+    await createStatusCommand(deps(NOW), loadConfigIn("Asia/Tokyo")).run([], io);
+    expect(valueOf("開始: ")).toBe("2026-08-12 10:30:00");
+  });
+
+  it("`--at` で打った時刻と、画面に出る時刻が一致する（ゾーンを跨いでも）", async () => {
+    // #45 の発端（打った時刻と出る時刻が対応しない）が、ゾーン設定でも再発しないこと
+    await createStartCommand(deps(NOW), loadConfigIn("Asia/Tokyo")).run(["a", "--at", "01:30"], io);
+
+    expect(valueOf("開始時刻: ")).toBe("01:30:00");
   });
 });
 
