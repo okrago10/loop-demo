@@ -7,11 +7,11 @@ import { UserError } from "../../src/cli.js";
 import { createExportCommand } from "../../src/commands/export.js";
 import { createStartCommand } from "../../src/commands/start.js";
 import { createStopCommand } from "../../src/commands/stop.js";
-import { DEFAULT_CONFIG } from "../../src/domain/config.js";
 import type { Entry } from "../../src/domain/entry.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
 import type { LoadConfig } from "../../src/store/config-store.js";
 import type { Store } from "../../src/store/store.js";
+import { testLoadConfig } from "../support/config.js";
 
 /**
  * `export --sanitize`（#62）。
@@ -39,7 +39,9 @@ const io = {
   },
 };
 
-const defaultConfig: LoadConfig = () => Promise.resolve({ config: DEFAULT_CONFIG, warnings: [] });
+// **ゾーンは実行環境のものを渡す（#64）。** このテストの主題は CSV の無害化なので、
+// 時刻の見え方は注入の前後で変わらないようにしておく
+const defaultConfig: LoadConfig = testLoadConfig();
 
 /** 表計算ソフトが数式として読む先頭文字。 */
 const DANGEROUS = ["=1+1", "+41", "-500", "@SUM(A1)"] as const;
@@ -79,8 +81,8 @@ function deps(now: Date) {
 
 /** 危険な先頭文字を持つ作業名で1件記録する。 */
 async function record(hour: number, description: string): Promise<void> {
-  await createStartCommand(deps(local(12, hour))).run([description], io);
-  await createStopCommand(deps(local(12, hour + 1))).run([], io);
+  await createStartCommand(deps(local(12, hour)), defaultConfig).run([description], io);
+  await createStopCommand(deps(local(12, hour + 1)), defaultConfig).run([], io);
   out = [];
 }
 
@@ -199,7 +201,7 @@ describe("`=` `+` `-` `@` で始まる作業名・タグ（DoD）", () => {
   });
 
   it("実行中の記録でも当たる（境界: 終端のないデータ）", async () => {
-    await createStartCommand(deps(local(12, 9))).run(["=1+1"], io);
+    await createStartCommand(deps(local(12, 9)), defaultConfig).run(["=1+1"], io);
     out = [];
 
     await createExportCommand(deps(local(12, 18)), defaultConfig).run(
