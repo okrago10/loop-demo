@@ -68,12 +68,14 @@ describe("config get", () => {
 
     // 丸め（#63）は未設定＝丸めないなので、値は空で出る。
     // 行そのものを消さないのは「設定できるキーがある」ことを見せるため。
-    // **`maxRunningHours` は未設定でも空にならない**——書かなくても効いている値（#24）
+    // **`maxRunningHours` は未設定でも空にならない**——書かなくても効いている値（#24）。
+    // `defaultFormat`（#65）は丸めと同じで、書かなければ効く値が無いので空
     expect(out).toEqual([
       `weekStartsOn=${String(DEFAULT_CONFIG.weekStartsOn)}`,
       "rounding.unitMinutes=",
       "rounding.mode=",
       `maxRunningHours=${String(DEFAULT_MAX_RUNNING_HOURS)}`,
+      "defaultFormat=",
     ]);
     expect(err).toEqual([]);
   });

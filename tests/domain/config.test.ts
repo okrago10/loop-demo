@@ -263,6 +263,7 @@ describe("Config の形と CONFIG_KEYS が一致している", () => {
       weekStartsOn: 1,
       rounding: { unitMinutes: 15, mode: "ceil" },
       maxRunningHours: 8,
+      defaultFormat: "csv",
     };
 
     expect(Object.keys(populated).toSorted()).toEqual([...topLevel].toSorted());
