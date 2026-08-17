@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { buildCommands, type Command, EXIT_OK, run, UserError } from "../../src/cli.js";
+import { buildRuntime, type Command, EXIT_OK, run, UserError } from "../../src/cli.js";
 import { createConfigCommand } from "../../src/commands/config.js";
 import { createEditCommand } from "../../src/commands/edit.js";
 import { createExportCommand } from "../../src/commands/export.js";
@@ -117,32 +117,33 @@ function commandNames(commands: readonly Command[]): string[] {
  */
 function expectSameCommands(real: readonly Command[], registry: readonly Command[]): void {
   expect(commandNames(real)).not.toEqual([]);
+  // **同じ名前を2回登録していないこと（#106）。** 名前の並びを比べるだけだと、
+  // 重複を足した側とテスト側の両方に同じ名前があれば通ってしまう
+  expect(commandNames(real)).toEqual([...new Set(commandNames(real))]);
   expect(commandNames(real)).toEqual(commandNames(registry));
 }
 
 /**
- * `src/cli.ts` が実際に組み立てる一覧を、一時ディレクトリの上で得る。
+ * `src/cli.ts` が**実際に配る**一覧を、一時ディレクトリの上で得る。
  *
- * **`buildRuntime` は呼べない。** 内部で `resolveStorePath(process.env, homedir())` を
- * 呼ぶので、テストから呼ぶと実ユーザーの `~/.tock` を指すパスが組み立てられる
- * （`CLAUDE.md`「テストがユーザーの実際の `~/.tock` を読み書きしないこと」）。
- * 一覧の組み立てだけを切り出した `buildCommands` に、行き先を渡して呼ぶ。
+ * **`buildRuntime` を呼ぶ（#106）。** 以前は `buildCommands` を呼んでいたが、それだと
+ * `buildRuntime` が結果に手を加えても気づけなかった——**`--help` に同じコマンドが2回出る
+ * 状態で全件が通った。** 配られる一覧そのものを見るのが、この検査の目的に合う。
+ *
+ * `buildRuntime` は保存先を `resolveStorePath(env, home)` で決めるので、`env` と `home` に
+ * 一時ディレクトリを渡す（`CLAUDE.md`「テストがユーザーの実際の `~/.tock` を
+ * 読み書きしないこと」）。**組み立てるだけでファイルには触らない。**
  */
 function realCommandsIn(dir: string): readonly Command[] {
-  const configStore = createJsonConfigStore(join(dir, "config.json"));
-
-  return buildCommands({
-    deps: {
-      store: createJsonlStore(join(dir, "entries.jsonl")),
-      now: () => new Date(),
-      newId: () => "real",
-    },
-    configStore,
-    loadConfig: () => loadEffectiveConfig(configStore, {}),
-    env: {},
+  return buildRuntime({
+    env: { TOCK_DIR: dir },
+    home: dir,
     terminal: PLAIN_TERMINAL,
     confirm: refuseConfirm,
-  });
+    now: () => new Date(),
+    newId: () => "real",
+    err: () => undefined,
+  }).commands;
 }
 
 /** 名前だけを持つコマンド。突き合わせの検査で、増減と並び替えを作るために使う。 */
