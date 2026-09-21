@@ -21,15 +21,23 @@ const USAGE: CommandUsage = {
   examples: ['tock start "設計 #work"', 'tock start "会議 #会議 #proj/tock" --at 09:30'],
 };
 
+/** `tock start` の宣言。**名前と使い方はここが唯一。**
+ *
+ * `parseArgs` にそのまま渡す。名前と宣言を呼び出しごとに書くと、別のコマンドの
+ * 使い方で解析する取り違えが起こりうる。 */
+const COMMAND = {
+  name: "start",
+  summary: "作業を開始する",
+  usage: USAGE,
+} satisfies Omit<Command, "run">;
+
 export function createStartCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
-    name: "start",
-    summary: "作業を開始する",
-    usage: USAGE,
+    ...COMMAND,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
       // 引数の検査を保存より先に済ませる。打ち間違いで状態が変わらないようにする
-      const args = parseArgs(argv, { command: "start", usage: USAGE });
+      const args = parseArgs(argv, COMMAND);
 
       // **設定は引数の形を確かめたあとに読む（#64）。** `--at` をどのゾーンで解釈するかは
       // 設定で決まるので値の解釈より前に要るが、打ち間違いの理由は引数だけで決まる

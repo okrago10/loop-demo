@@ -69,23 +69,32 @@ export interface ParsedArgs {
  */
 export function parseArgs(
   argv: readonly string[],
-  target: {
-    readonly command: string;
+  command: {
+    /** `tock <name>` で呼ばれる名前。エラーに添える使い方の見出しに使う。 */
+    readonly name: string;
     readonly usage: CommandUsage;
   },
 ): ParsedArgs {
-  const declared = new Map(target.usage.options.map((option) => [option.name, option]));
+  const declared = new Map(command.usage.options.map((option) => [option.name, option]));
   const values = new Map<string, string>();
   const flags = new Set<string>();
   const positional: string[] = [];
   const unknown: string[] = [];
 
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index] ?? "";
+  // **値を読んだ次のトークンは飛ばす。** 添字で回すと `noUncheckedIndexedAccess` のために
+  // `argv[index] ?? ""` のような回避が要り、空文字が未知の引数に混ざりうる
+  let consumedAsValue = false;
+
+  for (const [index, token] of argv.entries()) {
+    if (consumedAsValue) {
+      consumedAsValue = false;
+      continue;
+    }
+
     const option = declared.get(token);
 
     if (option === undefined) {
-      if (target.usage.positional !== undefined && !token.startsWith("--")) {
+      if (command.usage.positional !== undefined && !token.startsWith("--")) {
         positional.push(token);
       } else {
         unknown.push(token);
@@ -113,15 +122,15 @@ export function parseArgs(
     }
 
     values.set(token, value);
-    index += 1;
+    consumedAsValue = true;
   }
 
   if (unknown.length > 0) {
     throw new UserError(
       [
-        `tock ${target.command} が解釈できない引数です: ${unknown.join(" ")}`,
+        `tock ${command.name} が解釈できない引数です: ${unknown.join(" ")}`,
         "",
-        ...formatUsageBlock(target.command, target.usage),
+        ...formatUsageBlock(command.name, command.usage),
       ].join("\n"),
     );
   }
@@ -130,11 +139,11 @@ export function parseArgs(
   const assertDeclared = (name: string, wantsValue: boolean): void => {
     const option = declared.get(name);
     if (option === undefined) {
-      throw new Error(`tock ${target.command} は ${name} を宣言していません`);
+      throw new Error(`tock ${command.name} は ${name} を宣言していません`);
     }
     if ((option.argument !== undefined) !== wantsValue) {
       throw new Error(
-        `tock ${target.command} の ${name} は${wantsValue ? "値を取りません" : "値を取ります"}`,
+        `tock ${command.name} の ${name} は${wantsValue ? "値を取りません" : "値を取ります"}`,
       );
     }
   };

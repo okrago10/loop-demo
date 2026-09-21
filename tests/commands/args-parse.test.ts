@@ -35,7 +35,7 @@ const NO_POSITIONAL: CommandUsage = {
 };
 
 function parse(argv: readonly string[], usage: CommandUsage = USAGE) {
-  return parseArgs(argv, { command: "test", usage });
+  return parseArgs(argv, { name: "test", usage });
 }
 
 /** 投げられた例外そのものを取り出す。型を見るには値が要る（関数を渡すと必ず素通りする）。 */

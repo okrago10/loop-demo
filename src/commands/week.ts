@@ -52,18 +52,26 @@ const USAGE: CommandUsage = {
   ],
 };
 
+/** `tock week` の宣言。**名前と使い方はここが唯一。**
+ *
+ * `parseArgs` にそのまま渡す。名前と宣言を呼び出しごとに書くと、別のコマンドの
+ * 使い方で解析する取り違えが起こりうる。 */
+const COMMAND = {
+  name: "week",
+  summary: "週のタグ別・曜日別の集計を表示する",
+  usage: USAGE,
+} satisfies Omit<Command, "run">;
+
 export function createWeekCommand(
   deps: CommandDeps,
   loadConfig: LoadConfig,
   terminal: Terminal = PLAIN_TERMINAL,
 ): Command {
   return {
-    name: "week",
-    summary: "週のタグ別・曜日別の集計を表示する",
-    usage: USAGE,
+    ...COMMAND,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const args = parseArgs(argv, { command: "week", usage: USAGE });
+      const args = parseArgs(argv, COMMAND);
       const heatmap = args.flag("--heatmap");
 
       // 引数の検査を済ませてから store に触る。打ち間違いでファイルを読む必要はない

@@ -46,19 +46,27 @@ type Action = (typeof ACTIONS)[number];
  * コマンドで永続化する対象ではない。書き込んだ値が環境変数に隠される場合は、
  * その場で警告する（後から気づくのは難しい）。
  */
+/** `tock config` の宣言。**名前と使い方はここが唯一。**
+ *
+ * `parseArgs` にそのまま渡す。名前と宣言を呼び出しごとに書くと、別のコマンドの
+ * 使い方で解析する取り違えが起こりうる。 */
+const COMMAND = {
+  name: "config",
+  summary: "設定を読み書きする",
+  usage: USAGE,
+} satisfies Omit<Command, "run">;
+
 export function createConfigCommand(
   store: ConfigStore,
   env: Readonly<Record<string, string | undefined>>,
 ): Command {
   return {
-    name: "config",
-    summary: "設定を読み書きする",
-    usage: USAGE,
+    ...COMMAND,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
       // オプションは取らないので、`--` 始まりのトークンは打ち間違い。
       // 他のコマンドと同じ経路で弾き、同じ形で使い方を見せる（#42）
-      const { positional } = parseArgs(argv, { command: "config", usage: USAGE });
+      const { positional } = parseArgs(argv, COMMAND);
 
       const [actionValue, ...rest] = positional;
       const action = resolveAction(actionValue);

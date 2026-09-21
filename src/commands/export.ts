@@ -69,14 +69,22 @@ const USAGE: CommandUsage = {
   ],
 };
 
+/** `tock export` の宣言。**名前と使い方はここが唯一。**
+ *
+ * `parseArgs` にそのまま渡す。名前と宣言を呼び出しごとに書くと、別のコマンドの
+ * 使い方で解析する取り違えが起こりうる。 */
+const COMMAND = {
+  name: "export",
+  summary: "記録を CSV / JSON で書き出す",
+  usage: USAGE,
+} satisfies Omit<Command, "run">;
+
 export function createExportCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
-    name: "export",
-    summary: "記録を CSV / JSON で書き出す",
-    usage: USAGE,
+    ...COMMAND,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const args = parseArgs(argv, { command: "export", usage: USAGE });
+      const args = parseArgs(argv, COMMAND);
       const sanitize = args.flag("--sanitize");
       const formatValue = args.option("--format");
       const periodValue = args.option("--period");

@@ -37,18 +37,36 @@ const TODAY_USAGE: CommandUsage = {
  * 変わる値なので、直接読むと出力を固定できない。既定を非 TTY にしているのは、
  * **装飾なしのほうが安全側**だから（渡し忘れても読めない文字は出ない）。
  */
+/** `tock summary` の宣言。**名前と使い方はここが唯一。**
+ *
+ * `parseArgs` にそのまま渡す。名前と宣言を呼び出しごとに書くと、別のコマンドの
+ * 使い方で解析する取り違えが起こりうる。 */
+const SUMMARY_COMMAND = {
+  name: "summary",
+  summary: "指定した日のタグ別合計を表示する",
+  usage: SUMMARY_USAGE,
+} satisfies Omit<Command, "run">;
+
+/** `tock today` の宣言。**名前と使い方はここが唯一。**
+ *
+ * `parseArgs` にそのまま渡す。名前と宣言を呼び出しごとに書くと、別のコマンドの
+ * 使い方で解析する取り違えが起こりうる。 */
+const TODAY_COMMAND = {
+  name: "today",
+  summary: "今日のタグ別合計を表示する",
+  usage: TODAY_USAGE,
+} satisfies Omit<Command, "run">;
+
 export function createSummaryCommand(
   deps: CommandDeps,
   loadConfig: LoadConfig,
   terminal: Terminal = PLAIN_TERMINAL,
 ): Command {
   return {
-    name: "summary",
-    summary: "指定した日のタグ別合計を表示する",
-    usage: SUMMARY_USAGE,
+    ...SUMMARY_COMMAND,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const args = parseArgs(argv, { command: "summary", usage: SUMMARY_USAGE });
+      const args = parseArgs(argv, SUMMARY_COMMAND);
       const chart = args.flag("--chart");
       const day = args.option("--day");
 
@@ -67,12 +85,10 @@ export function createTodayCommand(
   terminal: Terminal = PLAIN_TERMINAL,
 ): Command {
   return {
-    name: "today",
-    summary: "今日のタグ別合計を表示する",
-    usage: TODAY_USAGE,
+    ...TODAY_COMMAND,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const chart = parseArgs(argv, { command: "today", usage: TODAY_USAGE }).flag("--chart");
+      const chart = parseArgs(argv, TODAY_COMMAND).flag("--chart");
 
       await report(deps, loadConfig, io, (timeZone) => dayPeriodOf(deps.now(), timeZone), {
         chart,

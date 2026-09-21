@@ -33,14 +33,22 @@ const USAGE: CommandUsage = {
   examples: ["tock rm 26d141cc", "tock rm 26d141cc --yes"],
 };
 
+/** `tock rm` の宣言。**名前と使い方はここが唯一。**
+ *
+ * `parseArgs` にそのまま渡す。名前と宣言を呼び出しごとに書くと、別のコマンドの
+ * 使い方で解析する取り違えが起こりうる。 */
+const COMMAND = {
+  name: "rm",
+  summary: "記録を削除する",
+  usage: USAGE,
+} satisfies Omit<Command, "run">;
+
 export function createRmCommand(deps: CommandDeps, confirm: Confirm): Command {
   return {
-    name: "rm",
-    summary: "記録を削除する",
-    usage: USAGE,
+    ...COMMAND,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const args = parseArgs(argv, { command: "rm", usage: USAGE });
+      const args = parseArgs(argv, COMMAND);
       const skipConfirm = args.flag("--yes");
 
       const id = takeId(args.positional);

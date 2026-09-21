@@ -34,16 +34,24 @@ const USAGE: CommandUsage = {
   ],
 };
 
+/** `tock stop` の宣言。**名前と使い方はここが唯一。**
+ *
+ * `parseArgs` にそのまま渡す。名前と宣言を呼び出しごとに書くと、別のコマンドの
+ * 使い方で解析する取り違えが起こりうる。 */
+const COMMAND = {
+  name: "stop",
+  summary: "作業を終了する",
+  usage: USAGE,
+} satisfies Omit<Command, "run">;
+
 export function createStopCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
-    name: "stop",
-    summary: "作業を終了する",
-    usage: USAGE,
+    ...COMMAND,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
       // 引数の検査を保存より先に済ませる。打ち間違いのときに記録を変えないため。
       // ヘルプはここに届く前に `cli.ts` が処理する（#42）
-      const args = parseArgs(argv, { command: "stop", usage: USAGE });
+      const args = parseArgs(argv, COMMAND);
       const auto = args.flag("--auto");
       const note = args.option("--note");
       // **設定を読むのは `--at` の解釈にゾーンが要るため（#64）。** `--auto` のときだけ
