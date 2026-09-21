@@ -5,8 +5,9 @@
  * `#Work` と `#work` が別の集計行になり、合計が合わなくなる。
  *
  * このファイルは純関数だけで構成する（`CLAUDE.md` の「domain に I/O を置かない」）。
- * 不正な入力は `Error` を投げ、利用者向けのメッセージへの翻訳は呼び出し側
- * （`src/commands/`）が行う。domain から `cli.ts` を参照すると依存の向きが逆になる。
+ * 不正な入力は `InvalidInputError` を投げる。終了コードの規則は `cli.ts` が1箇所で持ち、
+ * この型を利用者起因（1）に落とす。domain から `cli.ts` を参照すると依存の向きが逆になる
+ * ので、`UserError` は使わない（#111）。
  */
 
 import { InvalidInputError } from "./invalid-input.js";

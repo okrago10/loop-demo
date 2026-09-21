@@ -1,12 +1,10 @@
 import { type CliIo, type Command, UserError } from "../cli.js";
 import { selectLogRows } from "../domain/log.js";
-import { parsePeriodExpression } from "../domain/period-expression.js";
-import type { Period } from "../domain/period.js";
 import { normalizeTag } from "../domain/tag.js";
 import { shortIdLength } from "../domain/entry-id.js";
 import { formatLogLines } from "../format/log.js";
 import type { LoadConfig } from "../store/config-store.js";
-import { type CommandDeps, rejectUnknownArgs, takeOption } from "./args.js";
+import { type CommandDeps, rejectUnknownArgs, resolvePeriodOption, takeOption } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 
 /**
@@ -60,7 +58,9 @@ export function createLogCommand(deps: CommandDeps, loadConfig: LoadConfig): Com
       // それ以外を先に片付けておけば、`--limit` の打ち間違いで設定ファイルの警告が
       // 先に出ることはない
       const now = deps.now();
-      const tag = resolveTag(tagValue);
+      // **タグはここで正規化する。** 打ち間違いをファイルに触る前に弾くため。
+      // `selectLogRows` も内部で正規化するが、正規化は冪等なので二重に通しても変わらない
+      const tag = tagValue === undefined ? undefined : normalizeTag(tagValue);
       const limit = resolveLimit(limitValue);
 
       const { config, warnings } = await loadConfig();
@@ -68,7 +68,7 @@ export function createLogCommand(deps: CommandDeps, loadConfig: LoadConfig): Com
         io.err(warning);
       }
 
-      const period = resolvePeriod(periodValue, now, config.weekStartsOn, config.timezone);
+      const period = resolvePeriodOption(periodValue, now, config);
 
       // **期間で絞らずに全件を読む。** 短縮 id の桁数は「保存されている全記録の中で
       // 重複しない長さ」でなければならず、一覧に出る分だけでは決められない
@@ -92,36 +92,6 @@ export function createLogCommand(deps: CommandDeps, loadConfig: LoadConfig): Com
       }
     },
   };
-}
-
-/**
- * `--period` の解決。
- *
- * **`this-week` / `last-week` は設定の週の開始曜日に従う。** `week` コマンドだけが設定を
- * 見て `log` が見ないと、同じ「今週」が2つの意味を持つ。
- */
-function resolvePeriod(
-  value: string | undefined,
-  now: Date,
-  weekStartsOn: number,
-  timeZone: string,
-): Period | undefined {
-  // 省略は「全期間」。範囲で表さず、絞らないことを値の無さで表す（#57）
-  if (value === undefined) {
-    return undefined;
-  }
-
-  return parsePeriodExpression(value, now, { timeZone, weekStartsOn });
-}
-
-/**
- * `--tag` の解決。
- *
- * **ここで正規化してしまうのは、打ち間違いをファイルに触る前に弾くため。**
- * `selectLogRows` も内部で正規化するが、正規化は冪等なので二重に通しても結果は変わらない。
- */
-function resolveTag(value: string | undefined): string | undefined {
-  return value === undefined ? undefined : normalizeTag(value);
 }
 
 /**
