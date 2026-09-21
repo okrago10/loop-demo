@@ -7,7 +7,7 @@ import { formatSummaryChartLines, formatSummaryLines } from "../format/summary.j
 import type { CommandUsage } from "../format/help.js";
 import { PLAIN_TERMINAL, type Terminal } from "../format/terminal.js";
 import type { LoadConfig } from "../store/config-store.js";
-import { type CommandDeps, rejectUnknownArgs, takeFlag, takeOption } from "./args.js";
+import { type CommandDeps, parseArgs } from "./args.js";
 
 /** `tock summary` の使い方。 */
 const SUMMARY_USAGE: CommandUsage = {
@@ -48,9 +48,9 @@ export function createSummaryCommand(
     usage: SUMMARY_USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const { present: chart, rest: afterChart } = takeFlag(argv, "--chart");
-      const { value: day, rest } = takeOption(afterChart, "--day");
-      rejectUnknownArgs(rest, { command: "summary", usage: SUMMARY_USAGE });
+      const args = parseArgs(argv, { command: "summary", usage: SUMMARY_USAGE });
+      const chart = args.flag("--chart");
+      const day = args.option("--day");
 
       await report(deps, loadConfig, io, (timeZone) => resolvePeriod(day, deps.now(), timeZone), {
         chart,
@@ -72,8 +72,7 @@ export function createTodayCommand(
     usage: TODAY_USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const { present: chart, rest } = takeFlag(argv, "--chart");
-      rejectUnknownArgs(rest, { command: "today", usage: TODAY_USAGE });
+      const chart = parseArgs(argv, { command: "today", usage: TODAY_USAGE }).flag("--chart");
 
       await report(deps, loadConfig, io, (timeZone) => dayPeriodOf(deps.now(), timeZone), {
         chart,

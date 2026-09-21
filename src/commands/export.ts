@@ -11,7 +11,7 @@ import {
 } from "../domain/export.js";
 import { type CsvOptions, formatCsvLines, formatJsonLines } from "../format/export.js";
 import type { LoadConfig } from "../store/config-store.js";
-import { type CommandDeps, rejectUnknownArgs, takeFlag, takeOption } from "./args.js";
+import { type CommandDeps, parseArgs } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 
 /**
@@ -76,10 +76,10 @@ export function createExportCommand(deps: CommandDeps, loadConfig: LoadConfig): 
     usage: USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const { present: sanitize, rest: afterSanitize } = takeFlag(argv, "--sanitize");
-      const { value: formatValue, rest: afterFormat } = takeOption(afterSanitize, "--format");
-      const { value: periodValue, rest } = takeOption(afterFormat, "--period");
-      rejectUnknownArgs(rest, { command: "export", usage: USAGE });
+      const args = parseArgs(argv, { command: "export", usage: USAGE });
+      const sanitize = args.flag("--sanitize");
+      const formatValue = args.option("--format");
+      const periodValue = args.option("--period");
 
       // 引数の検査を済ませてからファイルに触る。打ち間違いのときに設定ファイルや記録を
       // 読む必要はなく、失敗の理由も引数だけで決まる。

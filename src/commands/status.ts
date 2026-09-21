@@ -4,7 +4,7 @@ import { durationMs } from "../domain/period.js";
 import { formatDuration } from "../format/duration.js";
 import { formatMoment } from "../format/time.js";
 import type { LoadConfig } from "../store/config-store.js";
-import { type CommandDeps, loadWarnedConfig, rejectUnknownArgs, takeFlag } from "./args.js";
+import { type CommandDeps, loadWarnedConfig, parseArgs } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 import { assertStartNotInFuture } from "./entry-guard.js";
 
@@ -33,8 +33,7 @@ export function createStatusCommand(deps: CommandDeps, loadConfig: LoadConfig): 
     usage: USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const { present: short, rest } = takeFlag(argv, "--short");
-      rejectUnknownArgs(rest, { command: "status", usage: USAGE });
+      const short = parseArgs(argv, { command: "status", usage: USAGE }).flag("--short");
 
       // **設定を読むのは表示のゾーンのため（#64）。** `status` は記録を読むだけだが、
       // 出す時刻は `--at` と同じゾーンでなければ対応が取れない

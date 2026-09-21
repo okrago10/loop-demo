@@ -10,7 +10,7 @@ import {
   withConfigValue,
 } from "../domain/config.js";
 import type { CommandUsage } from "../format/help.js";
-import { rejectUnknownArgs } from "./args.js";
+import { parseArgs } from "./args.js";
 import { type ConfigStore, loadEffectiveConfig } from "../store/config-store.js";
 
 /** 受け付ける操作。 */
@@ -20,7 +20,7 @@ const ACTIONS = ["get", "set"] as const;
  * `tock config` の使い方。
  *
  * 受け取るのは操作（`get` / `set`）とキー・値で、オプションは無い。位置引数を宣言して
- * あるので、`rejectUnknownArgs` は `--` 始まりのトークンだけを弾く。
+ * あるので、`parseArgs` は `--` 始まりのトークンだけを弾き、残りを位置引数にする。
  */
 const USAGE: CommandUsage = {
   positional: "<get|set> [キー] [値]",
@@ -58,9 +58,9 @@ export function createConfigCommand(
     async run(argv: readonly string[], io: CliIo): Promise<void> {
       // オプションは取らないので、`--` 始まりのトークンは打ち間違い。
       // 他のコマンドと同じ経路で弾き、同じ形で使い方を見せる（#42）
-      rejectUnknownArgs(argv, { command: "config", usage: USAGE });
+      const { positional } = parseArgs(argv, { command: "config", usage: USAGE });
 
-      const [actionValue, ...rest] = argv;
+      const [actionValue, ...rest] = positional;
       const action = resolveAction(actionValue);
 
       // 引数の検査をすべて済ませてからファイルに触る。打ち間違いのときに

@@ -1,6 +1,6 @@
 import { type CliIo, type Command, UserError } from "../cli.js";
 import type { Entry } from "../domain/entry.js";
-import { type CommandDeps, rejectUnknownArgs, takeFlag } from "./args.js";
+import { type CommandDeps, parseArgs } from "./args.js";
 import { shortenId, shortIdLength } from "../domain/entry-id.js";
 import type { CommandUsage } from "../format/help.js";
 import { resolveEntry } from "./lookup.js";
@@ -40,10 +40,10 @@ export function createRmCommand(deps: CommandDeps, confirm: Confirm): Command {
     usage: USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const { present: skipConfirm, rest } = takeFlag(argv, "--yes");
-      rejectUnknownArgs(rest, { command: "rm", usage: USAGE });
+      const args = parseArgs(argv, { command: "rm", usage: USAGE });
+      const skipConfirm = args.flag("--yes");
 
-      const id = takeId(rest);
+      const id = takeId(args.positional);
 
       // **消せるものかを先に確かめる。** 存在しない id で確認を出すと、
       // 「はい」と答えたのに失敗する流れになる

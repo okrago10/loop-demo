@@ -4,13 +4,7 @@ import type { Entry } from "../domain/entry.js";
 import { endedAt, startedAt } from "../domain/entry.js";
 import { normalizeTag } from "../domain/tag.js";
 import type { LoadConfig } from "../store/config-store.js";
-import {
-  type CommandDeps,
-  loadWarnedConfig,
-  rejectUnknownArgs,
-  resolveClockTimeOn,
-  takeOption,
-} from "./args.js";
+import { type CommandDeps, loadWarnedConfig, parseArgs, resolveClockTimeOn } from "./args.js";
 import { shortenId, shortIdLength } from "../domain/entry-id.js";
 import type { CommandUsage } from "../format/help.js";
 import { resolveEntry } from "./lookup.js";
@@ -51,13 +45,13 @@ export function createEditCommand(deps: CommandDeps, loadConfig: LoadConfig): Co
     usage: USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const { value: startValue, rest: afterStart } = takeOption(argv, "--start");
-      const { value: endValue, rest: afterEnd } = takeOption(afterStart, "--end");
-      const { value: tagsValue, rest: afterTags } = takeOption(afterEnd, "--tags");
-      const { value: noteValue, rest } = takeOption(afterTags, "--note");
-      rejectUnknownArgs(rest, { command: "edit", usage: USAGE });
+      const args = parseArgs(argv, { command: "edit", usage: USAGE });
+      const startValue = args.option("--start");
+      const endValue = args.option("--end");
+      const tagsValue = args.option("--tags");
+      const noteValue = args.option("--note");
 
-      const id = takeId(rest);
+      const id = takeId(args.positional);
       if (
         startValue === undefined &&
         endValue === undefined &&

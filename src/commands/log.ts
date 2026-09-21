@@ -6,7 +6,7 @@ import { normalizeTag } from "../domain/tag.js";
 import { shortIdLength } from "../domain/entry-id.js";
 import { formatLogLines } from "../format/log.js";
 import type { LoadConfig } from "../store/config-store.js";
-import { type CommandDeps, rejectUnknownArgs, takeOption } from "./args.js";
+import { type CommandDeps, parseArgs } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 
 /**
@@ -48,10 +48,10 @@ export function createLogCommand(deps: CommandDeps, loadConfig: LoadConfig): Com
     usage: USAGE,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const { value: periodValue, rest: afterPeriod } = takeOption(argv, "--period");
-      const { value: tagValue, rest: afterTag } = takeOption(afterPeriod, "--tag");
-      const { value: limitValue, rest } = takeOption(afterTag, "--limit");
-      rejectUnknownArgs(rest, { command: "log", usage: USAGE });
+      const args = parseArgs(argv, { command: "log", usage: USAGE });
+      const periodValue = args.option("--period");
+      const tagValue = args.option("--tag");
+      const limitValue = args.option("--limit");
 
       // 引数の検査を済ませてからファイルに触る。打ち間違いのときに設定ファイルや記録を
       // 読む必要はなく、失敗の理由も引数だけで決まる。

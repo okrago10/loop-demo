@@ -23,90 +23,135 @@ export interface CommandDeps {
 const CLOCK_TIME = /^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/;
 
 /**
- * 名前付きオプションの値を取り出し、残りを返す。
+ * 宣言から読み取った引数。
  *
- * 値を取らないフラグは今のところ無いため扱わない。値が続いていない場合は
- * 打ち間違いとして扱う。
- *
- * 次のトークンが別のオプション（`--` 始まり）の場合も「値が無い」とみなす。
- * `stop --note --at 10:00` を許すと note が `--at` になり、指定したはずの終了時刻が
- * 黙って無視される。
- *
- * 判定を `--` に限っているのは、`--note "-5分の中断あり"` のような値を書けなくしない
- * ため。`-h` のような短縮形は値としては現れず、余った場合に呼び出し側が弾く。
+ * **引けるのは宣言（`CommandUsage`）にある名前だけ。** 宣言に無い名前や、値を取るか
+ * どうかが宣言と食い違う名前を渡すと内部エラーになる。読む側と宣言のずれは、そのコマンドを
+ * 動かした時点で分かる。
  */
-export function takeOption(
-  argv: readonly string[],
-  name: string,
-): { value: string | undefined; rest: string[] } {
-  const index = argv.indexOf(name);
-  if (index === -1) {
-    return { value: undefined, rest: [...argv] };
-  }
-
-  const value = argv[index + 1];
-  if (value === undefined) {
-    throw new UserError(`${name} には値が必要です`);
-  }
-  if (value.startsWith("--")) {
-    throw new UserError(`${name} には値が必要です（${value} が続いています）`);
-  }
-
-  return { value, rest: [...argv.slice(0, index), ...argv.slice(index + 2)] };
+export interface ParsedArgs {
+  /** 値を取るオプション（宣言に `argument` があるもの）の値。省略されていれば `undefined`。 */
+  option(name: string): string | undefined;
+  /** 値を取らないフラグ（宣言に `argument` が無いもの）の有無。 */
+  flag(name: string): boolean;
+  /** オプションとして解釈されなかったトークン。位置引数を取らないコマンドでは必ず空。 */
+  readonly positional: readonly string[];
 }
 
 /**
- * 値を取らないフラグの有無を調べ、残りを返す。
+ * `CommandUsage` の宣言に従って引数を読む。**受け付ける範囲を決めるのはこの宣言だけ。**
  *
- * 同じフラグを複数回書いても有効として扱う（`--short --short`）。打ち間違いではあるが、
- * 意図は明らかなのでエラーにする理由がない。
- */
-export function takeFlag(
-  argv: readonly string[],
-  name: string,
-): { present: boolean; rest: string[] } {
-  const rest = argv.filter((token) => token !== name);
-
-  return { present: rest.length !== argv.length, rest };
-}
-
-/**
- * オプションを取り出した後に余ったトークンを検査し、解釈できないものを弾く。
+ * 以前は各コマンドが `takeOption` / `takeFlag` を手で並べ、その結果の `rest` を次へ渡し、
+ * 最後に `rejectUnknownArgs` を呼んでいた。受け付ける範囲を決めていたのはその呼び出しの
+ * 並びのほうで、宣言はそれとは独立に書かれていた。**一致しているかは、12コマンド ×
+ * 宣言されたオプション名を実際に起動して確かめるテストで埋めていた**（#110）。
  *
- * 黙って捨てると、打ち間違えたオプションが無視されて意図と違う結果になる。
- * 保存の前にエラーにする。
+ * **値を取るかどうかは宣言の `argument` の有無で決まる。** 以前は `takeOption` と
+ * `takeFlag` のどちらを呼ぶかという形で、読む側が持っていた。
  *
- * **受け付ける範囲は `CommandUsage` から引く。** ヘルプと別に一覧を持つと、
- * 片方だけ更新されて「ヘルプに出ているのに受け取られない」オプションが生まれる（#42）。
- * 位置引数を取るかどうかも同じ宣言（`positional` の有無）で決まる。
+ * 受け付ける規則は以前と同じ。
  *
- * `start` のように位置引数を取るコマンドでは、残りを作業名として使うため
- * `--` 始まりのトークンだけを弾く。作業名の中に現れる `--`（`"設計 -- 前半"` のように
- * 引用符でまとめて渡されたもの）は1つのトークンの途中なので影響を受けない。
+ * - 値が続いていなければ打ち間違いとして扱う。次が `--` 始まりの場合も「値が無い」と
+ *   みなす。`stop --note --at 10:00` を許すと note が `--at` になり、指定したはずの
+ *   終了時刻が黙って無視される
+ * - 判定を `--` に限っているのは、`--note "-5分の中断あり"` のような値を書けなくしない
+ *   ため
+ * - 同じフラグを複数回書いても有効（`--short --short`）。打ち間違いではあるが意図は明らか
+ * - 同じ値付きオプションの2回目以降は解釈できない引数として弾く。どちらが効くのかを
+ *   決める理由がない
+ * - 位置引数を取るコマンドでは、宣言に無い `--` 始まりのトークンだけを弾く。作業名の中に
+ *   現れる `--`（`"設計 -- 前半"` のように引用符でまとめて渡されたもの）は1つのトークンの
+ *   途中なので影響を受けない。位置引数を取らないコマンドでは、残ったトークンをすべて弾く
  *
  * **エラーには使い方をそのまま添える。** 何が使えるのかを別途調べさせない。
+ *
+ * `--help` / `-h` はここに届く前に `cli.ts` が処理する（#42）。
  */
-export function rejectUnknownArgs(
+export function parseArgs(
   argv: readonly string[],
-  options: {
+  target: {
     readonly command: string;
     readonly usage: CommandUsage;
   },
-): void {
-  const allowPositional = options.usage.positional !== undefined;
-  const unknown = allowPositional ? argv.filter((token) => token.startsWith("--")) : argv;
+): ParsedArgs {
+  const declared = new Map(target.usage.options.map((option) => [option.name, option]));
+  const values = new Map<string, string>();
+  const flags = new Set<string>();
+  const positional: string[] = [];
+  const unknown: string[] = [];
 
-  if (unknown.length === 0) {
-    return;
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index] ?? "";
+    const option = declared.get(token);
+
+    if (option === undefined) {
+      if (target.usage.positional !== undefined && !token.startsWith("--")) {
+        positional.push(token);
+      } else {
+        unknown.push(token);
+      }
+      continue;
+    }
+
+    if (option.argument === undefined) {
+      flags.add(token);
+      continue;
+    }
+
+    if (values.has(token)) {
+      // 2回目以降。以前も消費されずに残り、`rejectUnknownArgs` が弾いていた
+      unknown.push(token);
+      continue;
+    }
+
+    const value = argv[index + 1];
+    if (value === undefined) {
+      throw new UserError(`${token} には値が必要です`);
+    }
+    if (value.startsWith("--")) {
+      throw new UserError(`${token} には値が必要です（${value} が続いています）`);
+    }
+
+    values.set(token, value);
+    index += 1;
   }
 
-  throw new UserError(
-    [
-      `tock ${options.command} が解釈できない引数です: ${unknown.join(" ")}`,
-      "",
-      ...formatUsageBlock(options.command, options.usage),
-    ].join("\n"),
-  );
+  if (unknown.length > 0) {
+    throw new UserError(
+      [
+        `tock ${target.command} が解釈できない引数です: ${unknown.join(" ")}`,
+        "",
+        ...formatUsageBlock(target.command, target.usage),
+      ].join("\n"),
+    );
+  }
+
+  /** 読む側と宣言のずれを内部エラーにする。利用者の入力ではないので `UserError` にしない。 */
+  const assertDeclared = (name: string, wantsValue: boolean): void => {
+    const option = declared.get(name);
+    if (option === undefined) {
+      throw new Error(`tock ${target.command} は ${name} を宣言していません`);
+    }
+    if ((option.argument !== undefined) !== wantsValue) {
+      throw new Error(
+        `tock ${target.command} の ${name} は${wantsValue ? "値を取りません" : "値を取ります"}`,
+      );
+    }
+  };
+
+  return {
+    option: (name) => {
+      assertDeclared(name, true);
+
+      return values.get(name);
+    },
+    flag: (name) => {
+      assertDeclared(name, false);
+
+      return flags.has(name);
+    },
+    positional,
+  };
 }
 
 /**
@@ -177,16 +222,12 @@ export function resolveClockTimeOn(
 }
 
 /**
- * `--at` があればその時刻、なければ `now` を返す。
+ * `--at` の値があればその時刻、無ければ `now` を返す。
+ *
+ * 解析は `parseArgs` が済ませているので、ここは値の解釈だけを行う。
  */
-export function resolveAt(
-  argv: readonly string[],
-  now: Date,
-  timeZone: string,
-): { at: Date; rest: string[] } {
-  const { value, rest } = takeOption(argv, "--at");
-
-  return { at: value === undefined ? now : resolveClockTime(value, now, timeZone), rest };
+export function resolveAt(value: string | undefined, now: Date, timeZone: string): Date {
+  return value === undefined ? now : resolveClockTime(value, now, timeZone);
 }
 
 /**

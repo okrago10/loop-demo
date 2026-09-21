@@ -135,53 +135,17 @@ describe("サブコマンドごとの --help（DoD）", () => {
     await expect(store.listByRange(allTime)).resolves.toEqual([]);
   });
 
-  it("ヘルプに出るオプションは実際に受け取られる（二重管理の食い違いを防ぐ）", async () => {
-    const rejected: string[] = [];
-
-    for (const command of commands) {
-      for (const option of command.usage.options) {
-        out = [];
-        err = [];
-        await invoke([command.name, option.name]);
-
-        // 値が無い・不正といった理由で失敗するのは構わない。
-        // 「解釈できない引数」＝ヘルプに出ているのに受け取られていない状態だけを拾う
-        if (err.join("\n").includes("解釈できない引数")) {
-          rejected.push(`${command.name} ${option.name}`);
-        }
-      }
-    }
-
-    expect(rejected).toEqual([]);
-  });
-
-  // 逆方向。**受け取るのにヘルプに出ていないオプション**を拾う。
-  // 前のテストだけでは、宣言からオプションを1つ落としても気づけない
-  // （`takeOption` が先に消費するので `rejectUnknownArgs` には届かない）。
-  it("実際に受け取られるオプションはすべてヘルプに出る（二重管理の食い違いを防ぐ）", async () => {
-    const universe = [...new Set(commands.flatMap((c) => c.usage.options.map((o) => o.name)))];
-    const undocumented: string[] = [];
-
-    for (const command of commands) {
-      const declared = new Set(command.usage.options.map((option) => option.name));
-      for (const candidate of universe) {
-        if (declared.has(candidate)) {
-          continue;
-        }
-
-        out = [];
-        err = [];
-        await invoke([command.name, candidate]);
-
-        // 「解釈できない引数」で弾かれていないなら、そのコマンドは受け取っている
-        if (!err.join("\n").includes("解釈できない引数")) {
-          undocumented.push(`${command.name} ${candidate}`);
-        }
-      }
-    }
-
-    expect(undocumented).toEqual([]);
-  });
+  // **宣言と実装の突き合わせはここから外した（#110）。**
+  //
+  // 以前はこの位置に2本のテストがあり、12コマンド × 宣言された全オプション名を実際に
+  // 起動して、「ヘルプに出ているのに受け取られない」「受け取るのにヘルプに出ていない」の
+  // 両方向を確かめていた。`rejectUnknownArgs` が見ていたのは `positional` の有無だけで、
+  // 受け付ける範囲を決めていたのは各コマンドが手で並べた `takeOption` / `takeFlag` の
+  // ほうだったので、宣言との一致を起動回数で埋める必要があった。
+  //
+  // `parseArgs` が宣言（`CommandUsage`）を入力にしたので、**どちらの食い違いも起こらない。**
+  // 宣言したオプションは必ず受け取られ、宣言にない名前はどのコマンドでも弾かれる。
+  // 境界は `tests/commands/args-parse.test.ts` が、コマンドを起動せずに見る。
 
   it("すべてのコマンドが --help で使い方を出し、終了コード 0 になる", async () => {
     const failed: string[] = [];

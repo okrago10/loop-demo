@@ -5,14 +5,7 @@ import { autoStopAt } from "../domain/overrun.js";
 import { durationMs } from "../domain/period.js";
 import { formatDuration } from "../format/duration.js";
 import { formatMoment } from "../format/time.js";
-import {
-  type CommandDeps,
-  loadWarnedConfig,
-  rejectUnknownArgs,
-  resolveAt,
-  takeFlag,
-  takeOption,
-} from "./args.js";
+import { type CommandDeps, loadWarnedConfig, parseArgs, resolveAt } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 import type { LoadConfig } from "../store/config-store.js";
 
@@ -50,21 +43,22 @@ export function createStopCommand(deps: CommandDeps, loadConfig: LoadConfig): Co
     async run(argv: readonly string[], io: CliIo): Promise<void> {
       // 引数の検査を保存より先に済ませる。打ち間違いのときに記録を変えないため。
       // ヘルプはここに届く前に `cli.ts` が処理する（#42）
-      const { present: auto, rest: afterAuto } = takeFlag(argv, "--auto");
-      const { value: note, rest } = takeOption(afterAuto, "--note");
-      // **設定を先に読む（#64）。** `--at` の解釈にゾーンが要る。`--auto` のときだけ
+      const args = parseArgs(argv, { command: "stop", usage: USAGE });
+      const auto = args.flag("--auto");
+      const note = args.option("--note");
+      // **設定を読むのは `--at` の解釈にゾーンが要るため（#64）。** `--auto` のときだけ
       // 読む形だったが、そうすると `--at` のゾーンが指定の有無で変わってしまう
       const config = await loadWarnedConfig(loadConfig, io);
 
       // **`now` は1回だけ取る**（`start` と同じ形）。`--at` の解釈と表示で別々に呼ぶと、
       // 日付が変わる瞬間だけ「同じ日か」の判定が2つの時刻に基づくことになる（レビューで指摘）
       const now = deps.now();
-      const { at, rest: remaining } = resolveAt(rest, now, config.timezone);
-      rejectUnknownArgs(remaining, { command: "stop", usage: USAGE });
+      const at = resolveAt(args.option("--at"), now, config.timezone);
 
       // **`--at` と `--auto` は両立しない。** どちらも終了時刻を決める指定なので、
-      // 片方を黙って捨てると打った時刻と保存された時刻が食い違う
-      if (auto && argv.includes("--at")) {
+      // 片方を黙って捨てると打った時刻と保存された時刻が食い違う。
+      // **指定の有無は解析結果から読む。** 以前は消費する前の `argv` を数え直していた
+      if (auto && args.option("--at") !== undefined) {
         throw new UserError(
           "--at と --auto は同時に指定できません（終了時刻の決め方が2つになります）",
         );
