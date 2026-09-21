@@ -10,7 +10,7 @@ import {
   withConfigValue,
 } from "../domain/config.js";
 import type { CommandUsage } from "../format/help.js";
-import { rejectUnknownArgs } from "./args.js";
+import { parseArgs } from "./args.js";
 import { type ConfigStore, loadEffectiveConfig } from "../store/config-store.js";
 
 /** 受け付ける操作。 */
@@ -20,7 +20,7 @@ const ACTIONS = ["get", "set"] as const;
  * `tock config` の使い方。
  *
  * 受け取るのは操作（`get` / `set`）とキー・値で、オプションは無い。位置引数を宣言して
- * あるので、`rejectUnknownArgs` は `--` 始まりのトークンだけを弾く。
+ * あるので、`parseArgs` は `--` 始まりのトークンだけを弾き、残りを位置引数にする。
  */
 const USAGE: CommandUsage = {
   positional: "<get|set> [キー] [値]",
@@ -46,21 +46,29 @@ type Action = (typeof ACTIONS)[number];
  * コマンドで永続化する対象ではない。書き込んだ値が環境変数に隠される場合は、
  * その場で警告する（後から気づくのは難しい）。
  */
+/** `tock config` の宣言。**名前と使い方はここが唯一。**
+ *
+ * `parseArgs` にそのまま渡す。名前と宣言を呼び出しごとに書くと、別のコマンドの
+ * 使い方で解析する取り違えが起こりうる。 */
+const COMMAND = {
+  name: "config",
+  summary: "設定を読み書きする",
+  usage: USAGE,
+} satisfies Omit<Command, "run">;
+
 export function createConfigCommand(
   store: ConfigStore,
   env: Readonly<Record<string, string | undefined>>,
 ): Command {
   return {
-    name: "config",
-    summary: "設定を読み書きする",
-    usage: USAGE,
+    ...COMMAND,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
       // オプションは取らないので、`--` 始まりのトークンは打ち間違い。
       // 他のコマンドと同じ経路で弾き、同じ形で使い方を見せる（#42）
-      rejectUnknownArgs(argv, { command: "config", usage: USAGE });
+      const { positional } = parseArgs(argv, COMMAND);
 
-      const [actionValue, ...rest] = argv;
+      const [actionValue, ...rest] = positional;
       const action = resolveAction(actionValue);
 
       // 引数の検査をすべて済ませてからファイルに触る。打ち間違いのときに

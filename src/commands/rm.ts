@@ -1,6 +1,6 @@
 import { type CliIo, type Command, UserError } from "../cli.js";
 import type { Entry } from "../domain/entry.js";
-import { type CommandDeps, rejectUnknownArgs, takeFlag } from "./args.js";
+import { type CommandDeps, parseArgs } from "./args.js";
 import { shortenId, shortIdLength } from "../domain/entry-id.js";
 import type { CommandUsage } from "../format/help.js";
 import { resolveEntry } from "./lookup.js";
@@ -33,17 +33,25 @@ const USAGE: CommandUsage = {
   examples: ["tock rm 26d141cc", "tock rm 26d141cc --yes"],
 };
 
+/** `tock rm` の宣言。**名前と使い方はここが唯一。**
+ *
+ * `parseArgs` にそのまま渡す。名前と宣言を呼び出しごとに書くと、別のコマンドの
+ * 使い方で解析する取り違えが起こりうる。 */
+const COMMAND = {
+  name: "rm",
+  summary: "記録を削除する",
+  usage: USAGE,
+} satisfies Omit<Command, "run">;
+
 export function createRmCommand(deps: CommandDeps, confirm: Confirm): Command {
   return {
-    name: "rm",
-    summary: "記録を削除する",
-    usage: USAGE,
+    ...COMMAND,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const { present: skipConfirm, rest } = takeFlag(argv, "--yes");
-      rejectUnknownArgs(rest, { command: "rm", usage: USAGE });
+      const args = parseArgs(argv, COMMAND);
+      const skipConfirm = args.flag("--yes");
 
-      const id = takeId(rest);
+      const id = takeId(args.positional);
 
       // **消せるものかを先に確かめる。** 存在しない id で確認を出すと、
       // 「はい」と答えたのに失敗する流れになる

@@ -3,7 +3,7 @@ import { parseTags } from "../domain/tag.js";
 import { createEntry, startedAt } from "../domain/entry.js";
 import { formatMoment } from "../format/time.js";
 import type { LoadConfig } from "../store/config-store.js";
-import { type CommandDeps, loadWarnedConfig, rejectUnknownArgs, resolveAt } from "./args.js";
+import { type CommandDeps, loadWarnedConfig, parseArgs, resolveAt } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 
 /**
@@ -21,11 +21,19 @@ const USAGE: CommandUsage = {
   examples: ['tock start "設計 #work"', 'tock start "会議 #会議 #proj/tock" --at 09:30'],
 };
 
+/** `tock start` の宣言。**名前と使い方はここが唯一。**
+ *
+ * `parseArgs` にそのまま渡す。名前と宣言を呼び出しごとに書くと、別のコマンドの
+ * 使い方で解析する取り違えが起こりうる。 */
+const COMMAND = {
+  name: "start",
+  summary: "作業を開始する",
+  usage: USAGE,
+} satisfies Omit<Command, "run">;
+
 export function createStartCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
-    name: "start",
-    summary: "作業を開始する",
-    usage: USAGE,
+    ...COMMAND,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
       // **設定を先に読む（#64）。** `--at` をどのゾーンで解釈するかが設定で決まるので、
@@ -33,10 +41,10 @@ export function createStartCommand(deps: CommandDeps, loadConfig: LoadConfig): C
       const config = await loadWarnedConfig(loadConfig, io);
 
       // 引数の検査を保存より先に済ませる。打ち間違いで状態が変わらないようにする
+      const args = parseArgs(argv, COMMAND);
       const now = deps.now();
-      const { at, rest } = resolveAt(argv, now, config.timezone);
-      rejectUnknownArgs(rest, { command: "start", usage: USAGE });
-      const { tags, note } = parseTags(rest.join(" "));
+      const at = resolveAt(args.option("--at"), now, config.timezone);
+      const { tags, note } = parseTags(args.positional.join(" "));
 
       // **判断と書き込みを1つの操作にする（#11）。** 別々にすると、2つのプロセスが
       // 同時に「実行中は無い」と読んで、実行中エントリが2つできる（実測で再現する）

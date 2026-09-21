@@ -7,7 +7,7 @@ import { formatHeatmapLines } from "../format/heatmap.js";
 import { PLAIN_TERMINAL, type Terminal } from "../format/terminal.js";
 import { formatWeekLines } from "../format/week.js";
 import type { LoadConfig } from "../store/config-store.js";
-import { type CommandDeps, rejectUnknownArgs, takeFlag, takeOption } from "./args.js";
+import { type CommandDeps, parseArgs } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 
 /** 十進の整数。符号は付けられるが、先頭の余分な `0`・小数点・指数・空白は許さない。 */
@@ -52,25 +52,31 @@ const USAGE: CommandUsage = {
   ],
 };
 
+/** `tock week` の宣言。**名前と使い方はここが唯一。**
+ *
+ * `parseArgs` にそのまま渡す。名前と宣言を呼び出しごとに書くと、別のコマンドの
+ * 使い方で解析する取り違えが起こりうる。 */
+const COMMAND = {
+  name: "week",
+  summary: "週のタグ別・曜日別の集計を表示する",
+  usage: USAGE,
+} satisfies Omit<Command, "run">;
+
 export function createWeekCommand(
   deps: CommandDeps,
   loadConfig: LoadConfig,
   terminal: Terminal = PLAIN_TERMINAL,
 ): Command {
   return {
-    name: "week",
-    summary: "週のタグ別・曜日別の集計を表示する",
-    usage: USAGE,
+    ...COMMAND,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const { present: heatmap, rest: afterHeatmap } = takeFlag(argv, "--heatmap");
-      const { value: offsetValue, rest: afterOffset } = takeOption(afterHeatmap, "--offset");
-      const { value: weekStartValue, rest } = takeOption(afterOffset, "--week-starts-on");
-      rejectUnknownArgs(rest, { command: "week", usage: USAGE });
+      const args = parseArgs(argv, COMMAND);
+      const heatmap = args.flag("--heatmap");
 
       // 引数の検査を済ませてから store に触る。打ち間違いでファイルを読む必要はない
-      const offsetWeeks = resolveOffset(offsetValue);
-      const fromOption = resolveWeekStartsOn(weekStartValue);
+      const offsetWeeks = resolveOffset(args.option("--offset"));
+      const fromOption = resolveWeekStartsOn(args.option("--week-starts-on"));
 
       const { config, warnings } = await loadConfig();
       for (const warning of warnings) {
@@ -109,7 +115,7 @@ export function createWeekCommand(
 /**
  * `--offset` の解決。省略時は今週（0）。**十進の整数（符号付き）だけ**を受け付ける。
  *
- * 負の値を受けるため、`takeOption` が値として弾くのは `--` 始まりだけである点に依存している
+ * 負の値を受けるため、`parseArgs` が値として弾くのは `--` 始まりだけである点に依存している
  * （`-1` は値として通る）。
  *
  * 判定を `Number` に任せると `0x1`（1）や `1e2`（100）まで通り、エラーメッセージの

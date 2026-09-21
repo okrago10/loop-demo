@@ -4,7 +4,7 @@ import { durationMs } from "../domain/period.js";
 import { formatDuration } from "../format/duration.js";
 import { formatMoment } from "../format/time.js";
 import type { LoadConfig } from "../store/config-store.js";
-import { type CommandDeps, loadWarnedConfig, rejectUnknownArgs, takeFlag } from "./args.js";
+import { type CommandDeps, loadWarnedConfig, parseArgs } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 import { assertStartNotInFuture } from "./entry-guard.js";
 
@@ -26,15 +26,22 @@ const USAGE: CommandUsage = {
  *
  * 読むだけで何も書かない。
  */
+/** `tock status` の宣言。**名前と使い方はここが唯一。**
+ *
+ * `parseArgs` にそのまま渡す。名前と宣言を呼び出しごとに書くと、別のコマンドの
+ * 使い方で解析する取り違えが起こりうる。 */
+const COMMAND = {
+  name: "status",
+  summary: "実行中の作業を表示する",
+  usage: USAGE,
+} satisfies Omit<Command, "run">;
+
 export function createStatusCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
-    name: "status",
-    summary: "実行中の作業を表示する",
-    usage: USAGE,
+    ...COMMAND,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const { present: short, rest } = takeFlag(argv, "--short");
-      rejectUnknownArgs(rest, { command: "status", usage: USAGE });
+      const short = parseArgs(argv, COMMAND).flag("--short");
 
       // **設定を読むのは表示のゾーンのため（#64）。** `status` は記録を読むだけだが、
       // 出す時刻は `--at` と同じゾーンでなければ対応が取れない

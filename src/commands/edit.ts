@@ -4,13 +4,7 @@ import type { Entry } from "../domain/entry.js";
 import { endedAt, startedAt } from "../domain/entry.js";
 import { normalizeTag } from "../domain/tag.js";
 import type { LoadConfig } from "../store/config-store.js";
-import {
-  type CommandDeps,
-  loadWarnedConfig,
-  rejectUnknownArgs,
-  resolveClockTimeOn,
-  takeOption,
-} from "./args.js";
+import { type CommandDeps, loadWarnedConfig, parseArgs, resolveClockTimeOn } from "./args.js";
 import { shortenId, shortIdLength } from "../domain/entry-id.js";
 import type { CommandUsage } from "../format/help.js";
 import { resolveEntry } from "./lookup.js";
@@ -44,20 +38,28 @@ const USAGE: CommandUsage = {
   examples: ['tock edit 26d141cc --note "定例会議"', "tock edit 26d141cc --end 10:45"],
 };
 
+/** `tock edit` の宣言。**名前と使い方はここが唯一。**
+ *
+ * `parseArgs` にそのまま渡す。名前と宣言を呼び出しごとに書くと、別のコマンドの
+ * 使い方で解析する取り違えが起こりうる。 */
+const COMMAND = {
+  name: "edit",
+  summary: "記録を修正する",
+  usage: USAGE,
+} satisfies Omit<Command, "run">;
+
 export function createEditCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
-    name: "edit",
-    summary: "記録を修正する",
-    usage: USAGE,
+    ...COMMAND,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const { value: startValue, rest: afterStart } = takeOption(argv, "--start");
-      const { value: endValue, rest: afterEnd } = takeOption(afterStart, "--end");
-      const { value: tagsValue, rest: afterTags } = takeOption(afterEnd, "--tags");
-      const { value: noteValue, rest } = takeOption(afterTags, "--note");
-      rejectUnknownArgs(rest, { command: "edit", usage: USAGE });
+      const args = parseArgs(argv, COMMAND);
+      const startValue = args.option("--start");
+      const endValue = args.option("--end");
+      const tagsValue = args.option("--tags");
+      const noteValue = args.option("--note");
 
-      const id = takeId(rest);
+      const id = takeId(args.positional);
       if (
         startValue === undefined &&
         endValue === undefined &&

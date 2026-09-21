@@ -101,8 +101,8 @@ export interface Command {
   /**
    * そのコマンドの使い方（位置引数・オプション・例）。
    *
-   * **受け付ける引数の宣言はここが唯一。** `tock <command> --help` の表示と
-   * `rejectUnknownArgs` の検査が同じものを読むので、片方だけ更新されて食い違うことがない。
+   * **受け付ける引数の宣言はここが唯一。** `tock <command> --help` の表示も、
+   * `parseArgs` の解析も、この宣言だけを読む（#110）。
    */
   readonly usage: CommandUsage;
   /**
@@ -304,7 +304,7 @@ export async function run(argv: readonly string[], deps: CliDeps): Promise<numbe
   // 飛ばす必要があるが、そうすると `--note --help` は「値が必要です」というエラーに
   // なる。**ヘルプを見たい人にエラーを返すのがこの Issue の発端**なので、
   // 取りこぼさない側に寄せた。作業名やメモに `--help` / `-h` と書きたい場合は、
-  // 値としては受け取れない（`--` 始まりの値は `takeOption` が元から拒否している）。
+  // 値としては受け取れない（`--` 始まりの値は `parseArgs` が元から拒否している）。
   if (rest.some((token) => HELP_FLAGS.has(token))) {
     writeAll(formatCommandHelp(command.name, command.summary, command.usage), deps.out);
     return EXIT_OK;

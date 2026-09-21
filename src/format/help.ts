@@ -3,8 +3,8 @@
  *
  * **オプションの一覧はここで組み立てず、`CommandUsage` から引く。** ヘルプと実装が
  * 二重管理になると、片方だけ更新されて「ヘルプに出ているのに受け取られない」
- * オプションが生まれる。`rejectUnknownArgs`（`commands/args.ts`）も同じ宣言から
- * 受け付ける範囲を決めるので、宣言が1つあれば両者は食い違わない。
+ * オプションが生まれる。`parseArgs`（`commands/args.ts`）は**同じ宣言を解析の入力にする**
+ * ので、ヘルプに出るものと受け取られるものは同じ1つの宣言から決まる（#110）。
  *
  * `-h` / `--help` はどのコマンドでも `cli.ts` が処理するため、各コマンドが宣言する
  * 必要はない。ここで一覧の末尾に足す。
@@ -31,8 +31,8 @@ export interface CommandUsage {
   /**
    * コマンド名の後ろに続く位置引数の書き方（`[作業名]` / `<id>`）。
    *
-   * **省略＝位置引数を取らない。** `rejectUnknownArgs` はこれを見て、余った
-   * トークンを弾くかどうかを決める。
+   * **省略＝位置引数を取らない。** `parseArgs` はこれを見て、オプションとして解釈
+   * されなかったトークンを位置引数にするか弾くかを決める。
    */
   readonly positional?: string;
   readonly options: readonly CommandOption[];
@@ -51,7 +51,7 @@ function optionLabel(option: CommandOption): string {
 /**
  * 使い方の本体（使い方・オプション・例）を組み立てる。
  *
- * 打ち間違いのエラー（`rejectUnknownArgs`）からも使うので、見出し行を含めずに分けてある。
+ * 打ち間違いのエラー（`parseArgs`）からも使うので、見出し行を含めずに分けてある。
  */
 export function formatUsageBlock(name: string, usage: CommandUsage): string[] {
   const invocation = [`tock ${name}`];

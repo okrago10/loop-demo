@@ -5,7 +5,7 @@ import { durationMs } from "../domain/period.js";
 import { formatDuration } from "../format/duration.js";
 import { formatMoment } from "../format/time.js";
 import type { LoadConfig } from "../store/config-store.js";
-import { type CommandDeps, loadWarnedConfig, rejectUnknownArgs, resolveAt } from "./args.js";
+import { type CommandDeps, loadWarnedConfig, parseArgs, resolveAt } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 
 /**
@@ -26,21 +26,30 @@ const USAGE: CommandUsage = {
   examples: ['tock switch "レビュー #work"', 'tock switch "会議 #会議" --at 14:00'],
 };
 
+/** `tock switch` の宣言。**名前と使い方はここが唯一。**
+ *
+ * `parseArgs` にそのまま渡す。名前と宣言を呼び出しごとに書くと、別のコマンドの
+ * 使い方で解析する取り違えが起こりうる。 */
+const COMMAND = {
+  name: "switch",
+  summary: "実行中の作業を終了して次の作業を開始する",
+  usage: USAGE,
+} satisfies Omit<Command, "run">;
+
 export function createSwitchCommand(deps: CommandDeps, loadConfig: LoadConfig): Command {
   return {
-    name: "switch",
-    summary: "実行中の作業を終了して次の作業を開始する",
-    usage: USAGE,
+    ...COMMAND,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
       // **設定を先に読む（#64）。** `--at` の解釈にゾーンが要る
       const config = await loadWarnedConfig(loadConfig, io);
+
+      const args = parseArgs(argv, COMMAND);
       // **`now` は1回だけ取る**（`start` / `stop` と同じ形）。`--at` の解釈と表示で
       // 別々に呼ぶと、日付が変わる瞬間だけ「同じ日か」の判定が2つの時刻に基づく
       const now = deps.now();
-      const { at, rest } = resolveAt(argv, now, config.timezone);
-      rejectUnknownArgs(rest, { command: "switch", usage: USAGE });
-      const { tags, note } = parseTags(rest.join(" "));
+      const at = resolveAt(args.option("--at"), now, config.timezone);
+      const { tags, note } = parseTags(args.positional.join(" "));
 
       const next = createEntry(
         { start: at, tags, ...(note === undefined ? {} : { note }) },
