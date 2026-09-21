@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { UserError } from "../../src/cli.js";
+import { isUserCaused, UserError } from "../../src/cli.js";
 import { createLogCommand } from "../../src/commands/log.js";
 import { createStartCommand } from "../../src/commands/start.js";
 import { createStopCommand } from "../../src/commands/stop.js";
@@ -193,13 +193,13 @@ describe("log --period", () => {
   it("解釈できない期間は UserError で失敗する", async () => {
     await expect(
       createLogCommand(deps(NOW), defaultConfig).run(["--period", "nonsense"], io),
-    ).rejects.toThrow(UserError);
+    ).rejects.toSatisfy(isUserCaused);
   });
 
   it("存在しない日付は UserError で失敗する（境界）", async () => {
     await expect(
       createLogCommand(deps(NOW), defaultConfig).run(["--period", "2026-02-30"], io),
-    ).rejects.toThrow(UserError);
+    ).rejects.toSatisfy(isUserCaused);
   });
 
   it("--period の値が無い場合は UserError で失敗する", async () => {
@@ -247,7 +247,7 @@ describe("log --tag", () => {
   it("不正なタグは UserError で失敗する", async () => {
     await expect(
       createLogCommand(deps(NOW), defaultConfig).run(["--tag", "#"], io),
-    ).rejects.toThrow(UserError);
+    ).rejects.toSatisfy(isUserCaused);
   });
 
   it("期間とタグを同時に指定できる", async () => {
@@ -402,9 +402,9 @@ describe("引数の打ち間違いで設定ファイルを読まない（レビ�
   it("--tag の打ち間違いでも同じ", async () => {
     await writeFile(join(dir, "config.json"), "壊れています", "utf8");
 
-    await expect(createLogCommand(deps(NOW), loadFrom({})).run(["--tag", "#"], io)).rejects.toThrow(
-      UserError,
-    );
+    await expect(
+      createLogCommand(deps(NOW), loadFrom({})).run(["--tag", "#"], io),
+    ).rejects.toSatisfy(isUserCaused);
 
     expect(err).toEqual([]);
   });

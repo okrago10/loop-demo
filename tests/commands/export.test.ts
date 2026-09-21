@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { UserError } from "../../src/cli.js";
+import { isUserCaused, UserError } from "../../src/cli.js";
 import { createExportCommand } from "../../src/commands/export.js";
 import { createStartCommand } from "../../src/commands/start.js";
 import { createStopCommand } from "../../src/commands/stop.js";
@@ -131,7 +131,7 @@ describe("export の引数", () => {
         ["--format", "csv", "--period", "nonsense"],
         io,
       ),
-    ).rejects.toThrow(UserError);
+    ).rejects.toSatisfy(isUserCaused);
   });
 
   it("引数の検査は store を読む前に行う（記録が壊れていても打ち間違いを先に返す）", async () => {

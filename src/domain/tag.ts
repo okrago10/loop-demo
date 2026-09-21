@@ -9,6 +9,8 @@
  * （`src/commands/`）が行う。domain から `cli.ts` を参照すると依存の向きが逆になる。
  */
 
+import { InvalidInputError } from "./invalid-input.js";
+
 /** 階層の区切り。 */
 const SEPARATOR = "/";
 
@@ -44,20 +46,20 @@ export function normalizeTag(raw: string): string {
   const withoutMarker = stripMarker(raw.trim());
 
   if (withoutMarker === "") {
-    throw new Error(`タグ名が空です: ${JSON.stringify(raw)}`);
+    throw new InvalidInputError(`タグ名が空です: ${JSON.stringify(raw)}`);
   }
 
   const segments = withoutMarker.split(SEPARATOR).map((segment) => segment.trim());
 
   for (const segment of segments) {
     if (segment === "") {
-      throw new Error(`タグの階層が空です: ${JSON.stringify(raw)}`);
+      throw new InvalidInputError(`タグの階層が空です: ${JSON.stringify(raw)}`);
     }
     if (/\s/.test(segment)) {
-      throw new Error(`タグに空白は使えません: ${JSON.stringify(raw)}`);
+      throw new InvalidInputError(`タグに空白は使えません: ${JSON.stringify(raw)}`);
     }
     if (segment.includes(MARKER)) {
-      throw new Error(`タグの途中に ${MARKER} は使えません: ${JSON.stringify(raw)}`);
+      throw new InvalidInputError(`タグの途中に ${MARKER} は使えません: ${JSON.stringify(raw)}`);
     }
   }
 

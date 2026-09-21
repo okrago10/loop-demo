@@ -1,4 +1,4 @@
-import { type CliIo, type Command, UserError } from "../cli.js";
+import type { CliIo, Command } from "../cli.js";
 import { roundingRuleOf } from "../domain/config.js";
 import { dayPeriodOf, formatDay, parseDayPeriod } from "../domain/day.js";
 import type { Period } from "../domain/period.js";
@@ -122,15 +122,7 @@ async function report(
   }
 }
 
-/** `--day` の解決。domain のエラーは利用者向けに翻訳する（domain は `UserError` を知らない）。 */
+/** `--day` の解決。省略時は今日。 */
 function resolvePeriod(day: string | undefined, now: Date, timeZone: string): Period {
-  if (day === undefined) {
-    return dayPeriodOf(now, timeZone);
-  }
-
-  try {
-    return parseDayPeriod(day, timeZone);
-  } catch (error) {
-    throw new UserError(error instanceof Error ? error.message : String(error));
-  }
+  return day === undefined ? dayPeriodOf(now, timeZone) : parseDayPeriod(day, timeZone);
 }

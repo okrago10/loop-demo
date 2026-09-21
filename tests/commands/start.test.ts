@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { UserError } from "../../src/cli.js";
+import { isUserCaused, UserError } from "../../src/cli.js";
 import { createStartCommand } from "../../src/commands/start.js";
 import { createStopCommand } from "../../src/commands/stop.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
@@ -132,16 +132,16 @@ describe("start", () => {
   // #13 では `#` だけの語を作業名の一部として扱っていたが、タグの意味は #8 の担当。
   // 黙って作業名に混ぜると、タグを付けたつもりの記録が集計に出てこないまま気づけない
   it("`#` だけの語は不正なタグとして UserError で失敗する", async () => {
-    await expect(createStartCommand(deps(), testLoadConfig()).run(["設計 #"], io)).rejects.toThrow(
-      UserError,
-    );
+    await expect(
+      createStartCommand(deps(), testLoadConfig()).run(["設計 #"], io),
+    ).rejects.toSatisfy(isUserCaused);
   });
 
   it("不正なタグで失敗したときは何も保存しない", async () => {
     // 例外を握りつぶさず UserError であることまで見る。別の例外で落ちていたら気づけるように
-    await expect(createStartCommand(deps(), testLoadConfig()).run(["設計 #"], io)).rejects.toThrow(
-      UserError,
-    );
+    await expect(
+      createStartCommand(deps(), testLoadConfig()).run(["設計 #"], io),
+    ).rejects.toSatisfy(isUserCaused);
 
     expect(await store.listByRange(allTime)).toHaveLength(0);
   });

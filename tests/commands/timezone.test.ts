@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { UserError } from "../../src/cli.js";
+import { isUserCaused } from "../../src/cli.js";
 import { createConfigCommand } from "../../src/commands/config.js";
 import { createStartCommand } from "../../src/commands/start.js";
 import { createLogCommand } from "../../src/commands/log.js";
@@ -319,7 +319,7 @@ describe("未知のタイムゾーン名のフォールバック（DoD）", () =
 
     await expect(
       createConfigCommand(configStore, {}).run(["set", "timezone", "Asia/Tokio"], io),
-    ).rejects.toThrow(UserError);
+    ).rejects.toSatisfy(isUserCaused);
   });
 
   it("`config set` で設定して `config get` で読み戻せる", async () => {

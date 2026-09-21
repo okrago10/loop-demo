@@ -81,22 +81,18 @@ export function createStopCommand(deps: CommandDeps, loadConfig: LoadConfig): Co
           throw new UserError("実行中の作業がありません。tock start で開始してください");
         }
 
-        // createEntry は end < start を弾く。その失敗は打ち間違いなので UserError に翻訳し、
-        // 保存はしない（実行中のまま残るので、正しい時刻で再実行できる）
-        let candidate;
-        try {
-          candidate = createEntry(
-            {
-              start: running.start,
-              end: auto ? autoStopAt(running, at, limitMs).toISOString() : at,
-              tags: running.tags,
-              ...resolveNote(running.note, note),
-            },
-            { newId: () => running.id },
-          );
-        } catch (error) {
-          throw new UserError(error instanceof Error ? error.message : String(error));
-        }
+        // **createEntry は end < start を弾く。その失敗は保存しない**（実行中のまま
+        // 残るので、正しい時刻で再実行できる）。打ち間違いとしての終了コードは
+        // `InvalidInputError` が運ぶので、ここで翻訳しない（#111）
+        const candidate = createEntry(
+          {
+            start: running.start,
+            end: auto ? autoStopAt(running, at, limitMs).toISOString() : at,
+            tags: running.tags,
+            ...resolveNote(running.note, note),
+          },
+          { newId: () => running.id },
+        );
 
         await deps.store.update(candidate);
 

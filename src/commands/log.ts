@@ -95,7 +95,7 @@ export function createLogCommand(deps: CommandDeps, loadConfig: LoadConfig): Com
 }
 
 /**
- * `--period` の解決。domain のエラーは利用者向けに翻訳する（domain は `UserError` を知らない）。
+ * `--period` の解決。
  *
  * **`this-week` / `last-week` は設定の週の開始曜日に従う。** `week` コマンドだけが設定を
  * 見て `log` が見ないと、同じ「今週」が2つの意味を持つ。
@@ -111,30 +111,17 @@ function resolvePeriod(
     return undefined;
   }
 
-  try {
-    return parsePeriodExpression(value, now, { timeZone, weekStartsOn });
-  } catch (error) {
-    throw new UserError(error instanceof Error ? error.message : String(error));
-  }
+  return parsePeriodExpression(value, now, { timeZone, weekStartsOn });
 }
 
 /**
  * `--tag` の解決。
  *
- * ここで正規化してしまうのは、不正なタグを `UserError`（終了コード 1）として
- * 返すため。`selectLogRows` も内部で正規化するが、正規化は冪等なので二重に通しても
- * 結果は変わらない。
+ * **ここで正規化してしまうのは、打ち間違いをファイルに触る前に弾くため。**
+ * `selectLogRows` も内部で正規化するが、正規化は冪等なので二重に通しても結果は変わらない。
  */
 function resolveTag(value: string | undefined): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  try {
-    return normalizeTag(value);
-  } catch (error) {
-    throw new UserError(error instanceof Error ? error.message : String(error));
-  }
+  return value === undefined ? undefined : normalizeTag(value);
 }
 
 /**

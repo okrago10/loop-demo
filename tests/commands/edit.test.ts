@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { UserError } from "../../src/cli.js";
+import { isUserCaused, UserError } from "../../src/cli.js";
 import { createEditCommand } from "../../src/commands/edit.js";
 import { createLogCommand } from "../../src/commands/log.js";
 import { createStartCommand } from "../../src/commands/start.js";
@@ -220,7 +220,7 @@ describe("edit の不正な編集（DoD）", () => {
 
     await expect(
       createEditCommand(deps(NOW), testLoadConfig()).run([id, "--end", "08:00"], io),
-    ).rejects.toThrow(UserError);
+    ).rejects.toSatisfy(isUserCaused);
   });
 
   it("開始が終了より後になる編集も UserError で失敗する", async () => {
@@ -228,7 +228,7 @@ describe("edit の不正な編集（DoD）", () => {
 
     await expect(
       createEditCommand(deps(NOW), testLoadConfig()).run([id, "--start", "11:00"], io),
-    ).rejects.toThrow(UserError);
+    ).rejects.toSatisfy(isUserCaused);
   });
 
   it("失敗したときは記録を変えない", async () => {
@@ -296,7 +296,7 @@ describe("edit の不正な編集（DoD）", () => {
 
     await expect(
       createEditCommand(deps(NOW), testLoadConfig()).run([id, "--tags", "#"], io),
-    ).rejects.toThrow(UserError);
+    ).rejects.toSatisfy(isUserCaused);
   });
 });
 
@@ -391,7 +391,7 @@ describe("edit と実行中エントリ（終端がない）", () => {
 
     await expect(
       createEditCommand(deps(NOW), testLoadConfig()).run([id, "--end", "08:00"], io),
-    ).rejects.toThrow(UserError);
+    ).rejects.toSatisfy(isUserCaused);
   });
 
   it("実行中の開始を前に動かして他の記録と重なると UserError（境界）", async () => {

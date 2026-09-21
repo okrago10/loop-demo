@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { UserError } from "../../src/cli.js";
+import { isUserCaused, UserError } from "../../src/cli.js";
 import { createConfigCommand } from "../../src/commands/config.js";
 import { DEFAULT_CONFIG } from "../../src/domain/config.js";
 import { DEFAULT_MAX_RUNNING_HOURS } from "../../src/domain/overrun.js";
@@ -107,7 +107,7 @@ describe("config get", () => {
   });
 
   it("知らないキーは拒否する（DoD）", async () => {
-    await expect(command().run(["get", "locale"], io)).rejects.toThrow(UserError);
+    await expect(command().run(["get", "locale"], io)).rejects.toSatisfy(isUserCaused);
     await expect(command().run(["get", "locale"], io)).rejects.toThrow(/weekStartsOn/);
   });
 
@@ -150,27 +150,31 @@ describe("config set", () => {
   });
 
   it("知らないキーは拒否し、ファイルを作らない（DoD）", async () => {
-    await expect(command().run(["set", "locale", "Asia/Tokyo"], io)).rejects.toThrow(UserError);
+    await expect(command().run(["set", "locale", "Asia/Tokyo"], io)).rejects.toSatisfy(
+      isUserCaused,
+    );
     await expect(command().run(["set", "locale", "Asia/Tokyo"], io)).rejects.toThrow(/locale/);
 
     await expect(readFile(path, "utf8")).rejects.toThrow();
   });
 
   it("大文字小文字が違うキーも拒否する（DoD）", async () => {
-    await expect(command().run(["set", "weekstartson", "0"], io)).rejects.toThrow(UserError);
+    await expect(command().run(["set", "weekstartson", "0"], io)).rejects.toSatisfy(isUserCaused);
   });
 
   it("範囲外の値は拒否し、ファイルを書き換えない", async () => {
     await command().run(["set", "weekStartsOn", "0"], io);
 
-    await expect(command().run(["set", "weekStartsOn", "7"], io)).rejects.toThrow(UserError);
+    await expect(command().run(["set", "weekStartsOn", "7"], io)).rejects.toSatisfy(isUserCaused);
 
     expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ weekStartsOn: 0 });
   });
 
   it("十進の整数でない値は拒否する（境界）", async () => {
     for (const value of ["1.5", "0x6", "1e0", " 3 ", "", "月曜", "-1"]) {
-      await expect(command().run(["set", "weekStartsOn", value], io)).rejects.toThrow(UserError);
+      await expect(command().run(["set", "weekStartsOn", value], io)).rejects.toSatisfy(
+        isUserCaused,
+      );
     }
   });
 
@@ -240,7 +244,7 @@ describe("環境変数に隠される場合の注意（レビュー指摘）", (
     await command({ TOCK_WEEK_STARTS_ON: "05" }).run(["set", "weekStartsOn", "0"], io);
 
     expect(err).toEqual([]);
-    await expect(command().run(["set", "weekStartsOn", "05"], io)).rejects.toThrow(UserError);
+    await expect(command().run(["set", "weekStartsOn", "05"], io)).rejects.toSatisfy(isUserCaused);
   });
 });
 

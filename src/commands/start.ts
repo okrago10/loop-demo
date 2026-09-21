@@ -1,14 +1,9 @@
 import { type Command, type CliIo, UserError } from "../cli.js";
+import { parseTags } from "../domain/tag.js";
 import { createEntry, startedAt } from "../domain/entry.js";
 import { formatMoment } from "../format/time.js";
 import type { LoadConfig } from "../store/config-store.js";
-import {
-  type CommandDeps,
-  loadWarnedConfig,
-  parseDescription,
-  rejectUnknownArgs,
-  resolveAt,
-} from "./args.js";
+import { type CommandDeps, loadWarnedConfig, rejectUnknownArgs, resolveAt } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 
 /**
@@ -41,7 +36,7 @@ export function createStartCommand(deps: CommandDeps, loadConfig: LoadConfig): C
       const now = deps.now();
       const { at, rest } = resolveAt(argv, now, config.timezone);
       rejectUnknownArgs(rest, { command: "start", usage: USAGE });
-      const { tags, note } = parseDescription(rest.join(" "));
+      const { tags, note } = parseTags(rest.join(" "));
 
       // **判断と書き込みを1つの操作にする（#11）。** 別々にすると、2つのプロセスが
       // 同時に「実行中は無い」と読んで、実行中エントリが2つできる（実測で再現する）

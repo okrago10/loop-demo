@@ -3,6 +3,7 @@ import { DEFAULT_MAX_RUNNING_HOURS, hoursToMs } from "./overrun.js";
 import { isTimeZone } from "./timezone.js";
 import type { RoundingMode, RoundingRule } from "./rounding.js";
 import { assertWeekStartsOn, DEFAULT_WEEK_STARTS_ON } from "./week.js";
+import { InvalidInputError } from "./invalid-input.js";
 
 /**
  * 利用者ごとの設定。
@@ -404,7 +405,7 @@ export function isConfigKey(value: string): value is ConfigKey {
  */
 export function assertConfigKey(value: string): ConfigKey {
   if (!isConfigKey(value)) {
-    throw new Error(
+    throw new InvalidInputError(
       `知らない設定キーです: ${JSON.stringify(value)}（使えるキー: ${CONFIG_KEYS.join(" / ")}）`,
     );
   }
@@ -643,7 +644,7 @@ export function overrideFromEnv(
 export function withConfigValue(config: Config, key: ConfigKey, text: string): Config {
   const value = parseConfigText(key, text);
   if (value === undefined) {
-    throw new Error(
+    throw new InvalidInputError(
       `${key} には${describeConfigKey(key)}を指定してください: ${JSON.stringify(text)}`,
     );
   }

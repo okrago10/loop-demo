@@ -5,6 +5,8 @@
  * 同じにしておくと、保存・読み込みで変換の齟齬が起きない。計算するときは
  * `startedAt` / `endedAt` で Date に変換して扱う。
  */
+
+import { InvalidInputError } from "./invalid-input.js";
 export interface Entry {
   readonly id: string;
   /** 開始時刻。ISO 8601（UTC）。 */
@@ -90,24 +92,24 @@ export function isStoredTimestamp(value: string): boolean {
 function toIsoString(value: Date | string, label: string): string {
   if (value instanceof Date) {
     if (Number.isNaN(value.getTime())) {
-      throw new Error(`${label} が不正な Date です`);
+      throw new InvalidInputError(`${label} が不正な Date です`);
     }
     return value.toISOString();
   }
 
   if (!ISO_8601_WITH_ZONE.test(value)) {
-    throw new Error(
+    throw new InvalidInputError(
       `${label} はタイムゾーン付きの ISO 8601 で指定してください: ${JSON.stringify(value)}`,
     );
   }
 
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
-    throw new Error(`${label} が日時として解釈できません: ${value}`);
+    throw new InvalidInputError(`${label} が日時として解釈できません: ${value}`);
   }
 
   if (!isRealCalendarDate(value)) {
-    throw new Error(`${label} に存在しない日付が指定されています: ${value}`);
+    throw new InvalidInputError(`${label} に存在しない日付が指定されています: ${value}`);
   }
 
   return parsed.toISOString();
@@ -122,7 +124,7 @@ function toIsoString(value: Date | string, label: string): string {
 function validateTags(tags: readonly string[]): readonly string[] {
   for (const tag of tags) {
     if (tag.trim() === "") {
-      throw new Error("空のタグは指定できません");
+      throw new InvalidInputError("空のタグは指定できません");
     }
   }
 
@@ -140,11 +142,13 @@ export function createEntry(input: CreateEntryInput, deps: EntryDeps): Entry {
   const end = input.end === undefined ? undefined : toIsoString(input.end, "end");
 
   if (end !== undefined && Date.parse(end) < Date.parse(start)) {
-    throw new Error(`end が start より前です: start=${start} end=${end}`);
+    throw new InvalidInputError(`end が start より前です: start=${start} end=${end}`);
   }
 
   const id = deps.newId();
   if (id.trim() === "") {
+    // **これは利用者の入力ではない。** `newId` が空を返すのは呼び出し側の不具合なので、
+    // 入力の検査とは分けて素の `Error`（内部エラー）のままにする
     throw new Error("id が空です");
   }
 

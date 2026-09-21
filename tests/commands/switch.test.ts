@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { UserError } from "../../src/cli.js";
+import { isUserCaused, UserError } from "../../src/cli.js";
 import { createStartCommand } from "../../src/commands/start.js";
 import { createSwitchCommand } from "../../src/commands/switch.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
@@ -281,7 +281,7 @@ describe("switch（途中で失敗しても中途半端な状態を残さない�
         ["次の作業", "--at", "08:00"],
         io,
       ),
-    ).rejects.toThrow(UserError);
+    ).rejects.toSatisfy(isUserCaused);
 
     const entries = await store.listByRange(allTime);
 

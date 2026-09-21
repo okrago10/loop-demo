@@ -212,9 +212,5 @@ function resolvePeriod(
     return undefined;
   }
 
-  try {
-    return parsePeriodExpression(value, now, { timeZone, weekStartsOn });
-  } catch (error) {
-    throw new UserError(error instanceof Error ? error.message : String(error));
-  }
+  return parsePeriodExpression(value, now, { timeZone, weekStartsOn });
 }

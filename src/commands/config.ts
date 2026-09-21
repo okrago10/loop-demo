@@ -116,18 +116,13 @@ async function runSet(
     throw new UserError(`tock config set が解釈できない引数です: ${extra.join(" ")}`);
   }
 
-  const key = toKey(keyValue);
+  const key = assertConfigKey(keyValue);
 
   // 書き込む前に読む。他のキーを既定値で上書きしないため
   const current = await store.read();
   writeWarnings(current.warnings, io);
 
-  let updated;
-  try {
-    updated = withConfigValue(current.config, key, value);
-  } catch (error) {
-    throw new UserError(error instanceof Error ? error.message : String(error));
-  }
+  const updated = withConfigValue(current.config, key, value);
 
   await store.write(updated);
   io.out(`設定しました: ${key}=${formatConfigValue(updated, key)}`);
@@ -190,16 +185,7 @@ function resolveOptionalKey(argv: readonly string[], action: Action): ConfigKey 
     return undefined;
   }
 
-  return toKey(keyValue);
-}
-
-/** domain のエラーは利用者向けに翻訳する（domain は `UserError` を知らない）。 */
-function toKey(value: string): ConfigKey {
-  try {
-    return assertConfigKey(value);
-  } catch (error) {
-    throw new UserError(error instanceof Error ? error.message : String(error));
-  }
+  return assertConfigKey(keyValue);
 }
 
 /** 設定の読み取りで出た警告を stderr に出す。答えそのものではないので stdout に混ぜない。 */
