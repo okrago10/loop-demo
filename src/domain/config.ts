@@ -185,10 +185,14 @@ interface ConfigSpec {
   /**
    * 不正な値を捨てたときに、代わりに何を使うかを示す文言。
    *
-   * **未設定を既定とするキーは、空文字を見せない。**「既定値  を使います」では何が起きたのか
-   * 読めない。丸めは書かなければ丸めないので、そのことをそのまま書く。
+   * **書かなければ「既定値 <read の結果>」になる。** 既定値がそのまま効くキー
+   * （`weekStartsOn` / `maxRunningHours`）で文言に値を書き写すと、既定を変えたときに
+   * 片方だけ古くなる。
+   *
+   * 書くのは、**既定値が値として存在しないキー**だけ。丸めは書かなければ丸めないので、
+   * `read` は空文字を返す。「既定値  を使います」では何が起きたのか読めない。
    */
-  readonly describeDefault: string;
+  readonly describeDefault?: string;
   /** JSON から読んだ値を検査する。書けない値なら `undefined`。 */
   readonly fromJson: (value: unknown) => ConfigValue | undefined;
   /** 文字列で書かれた値を検査する。書けない値なら `undefined`。 */
@@ -200,23 +204,26 @@ interface ConfigSpec {
 }
 
 /**
- * 十進で書かれた1以上の整数を読む。`rounding.unitMinutes` と `maxRunningHours` は
- * 同じ規則なので、組み立てを1つにする。
+ * 1以上の整数を受け取るキーの共通部分（`rounding.unitMinutes` / `maxRunningHours`）。
+ *
+ * **JSON と文字列の両方をここに置く。** 片方だけ共有すると、もう片方で受け付ける範囲が
+ * キーごとにずれても気づけない。
  */
-function positiveIntegerText(text: string): number | undefined {
-  return DECIMAL_INTEGER.test(text) && isPositiveInteger(Number(text)) ? Number(text) : undefined;
-}
+const POSITIVE_INTEGER = {
+  fromJson: (value: unknown): number | undefined => (isPositiveInteger(value) ? value : undefined),
+  parseText: (text: string): number | undefined =>
+    DECIMAL_INTEGER.test(text) && isPositiveInteger(Number(text)) ? Number(text) : undefined,
+} as const;
 
 /**
  * キーごとの仕様。**設定キーについて知りたいことは、すべてこの表にある。**
  *
- * 既定値を文言に出すキー（`weekStartsOn` / `maxRunningHours`）は、`read` が使うのと
- * 同じ定数から引く。値と文言が別の場所から来ると、既定を変えたときに片方だけ古くなる。
+ * `describeDefault` を書いていないキーは、既定値がそのまま効くキーである
+ * （文言は `describeDefault()` が `read` から組み立てる）。
  */
 const CONFIG_SPECS: { readonly [K in ConfigKey]: ConfigSpec } = {
   weekStartsOn: {
     describe: "0（日曜）〜6（土曜）の整数",
-    describeDefault: `既定値 ${String(DEFAULT_WEEK_STARTS_ON)}`,
     fromJson: (value) => (isWeekStartsOn(value) ? value : undefined),
     parseText: (text) =>
       DECIMAL_INTEGER.test(text) && isWeekStartsOn(Number(text)) ? Number(text) : undefined,
@@ -226,8 +233,7 @@ const CONFIG_SPECS: { readonly [K in ConfigKey]: ConfigSpec } = {
   "rounding.unitMinutes": {
     describe: "1以上の整数（分）",
     describeDefault: "既定（丸めません）",
-    fromJson: (value) => (isPositiveInteger(value) ? value : undefined),
-    parseText: positiveIntegerText,
+    ...POSITIVE_INTEGER,
     // 未設定は空で表す。「丸めない」ことを 0 のような値で表すと、
     // 「0 分単位で丸める」という書けない設定と見分けがつかない
     read: (config) =>
@@ -250,9 +256,7 @@ const CONFIG_SPECS: { readonly [K in ConfigKey]: ConfigSpec } = {
   },
   maxRunningHours: {
     describe: "1以上の整数（時間）",
-    describeDefault: `既定値 ${String(DEFAULT_MAX_RUNNING_HOURS)}`,
-    fromJson: (value) => (isPositiveInteger(value) ? value : undefined),
-    parseText: positiveIntegerText,
+    ...POSITIVE_INTEGER,
     // **未設定でも空にしない。** 丸めと違い、書かなくても効いている値（既定 8）が
     // あるので、空を見せると「上限が無い」と読める
     read: (config) => String(config.maxRunningHours ?? DEFAULT_MAX_RUNNING_HOURS),
@@ -285,6 +289,18 @@ const CONFIG_SPECS: { readonly [K in ConfigKey]: ConfigSpec } = {
     }),
   },
 };
+
+/**
+ * 不正な値を捨てたときに、代わりに何を使うかを示す文言。
+ *
+ * **仕様に書いていないキーは、既定値をそのまま出す。** 出どころは `read` 1つなので、
+ * 既定を変えても文言が古くならない。
+ */
+function describeDefault(key: ConfigKey): string {
+  const spec = CONFIG_SPECS[key];
+
+  return spec.describeDefault ?? `既定値 ${spec.read(DEFAULT_CONFIG)}`;
+}
 
 /**
  * そのキーに書ける値の説明。エラーと警告の両方で使うので1箇所に持つ。
@@ -429,7 +445,7 @@ export function parseConfigFile(raw: unknown): ConfigResult {
     if (value === undefined) {
       warnings.push(
         `${key} の値が不正です: ${JSON.stringify(found.value)}（${describeConfigKey(key)}）。` +
-          `${CONFIG_SPECS[key].describeDefault}を使います`,
+          `${describeDefault(key)}を使います`,
       );
       continue;
     }
