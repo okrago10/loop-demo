@@ -169,65 +169,147 @@ export interface ConfigResult {
 const DECIMAL_INTEGER = /^(0|[1-9]\d*)$/;
 
 /**
+ * 設定キー1つ分の仕様。
+ *
+ * **そのキーについての決定をすべてここに置く。** 以前は「書ける値の説明」「JSON の検査」
+ * 「文字列の検査」「設定への書き込み」「読み出し」「既定の説明」が6つの独立した
+ * `switch (key)` に分かれており、1つのキーを読むのに 400 行を行き来する必要があった（#109）。
+ *
+ * 網羅は `CONFIG_SPECS` の型（`ConfigKey` からの写像）が保証する。キーを足して仕様を
+ * 書き忘れると表に穴が空き、型検査が落ちる。以前は `switch` ごとに `never` ガードを
+ * 置いて同じことをしていた。
+ */
+interface ConfigSpec {
+  /** そのキーに書ける値の説明。エラーと警告の両方で使う。 */
+  readonly describe: string;
+  /**
+   * 不正な値を捨てたときに、代わりに何を使うかを示す文言。
+   *
+   * **書かなければ「既定値 <read の結果>」になる。** 既定値がそのまま効くキー
+   * （`weekStartsOn` / `maxRunningHours`）で文言に値を書き写すと、既定を変えたときに
+   * 片方だけ古くなる。
+   *
+   * 書くのは、**既定値が値として存在しないキー**だけ。丸めは書かなければ丸めないので、
+   * `read` は空文字を返す。「既定値  を使います」では何が起きたのか読めない。
+   */
+  readonly describeDefault?: string;
+  /** JSON から読んだ値を検査する。書けない値なら `undefined`。 */
+  readonly fromJson: (value: unknown) => ConfigValue | undefined;
+  /** 文字列で書かれた値を検査する。書けない値なら `undefined`。 */
+  readonly parseText: (text: string) => ConfigValue | undefined;
+  /** 設定の値を文字列で読み出す（`config get` の出力）。 */
+  readonly read: (config: Config) => string;
+  /** 検査済みの値を設定に載せる。元の設定は書き換えない。 */
+  readonly write: (config: Config, value: ConfigValue) => Config;
+}
+
+/**
+ * 1以上の整数を受け取るキーの共通部分（`rounding.unitMinutes` / `maxRunningHours`）。
+ *
+ * **JSON と文字列の両方をここに置く。** 片方だけ共有すると、もう片方で受け付ける範囲が
+ * キーごとにずれても気づけない。
+ */
+const POSITIVE_INTEGER = {
+  fromJson: (value: unknown): number | undefined => (isPositiveInteger(value) ? value : undefined),
+  parseText: (text: string): number | undefined =>
+    DECIMAL_INTEGER.test(text) && isPositiveInteger(Number(text)) ? Number(text) : undefined,
+} as const;
+
+/**
+ * キーごとの仕様。**設定キーについて知りたいことは、すべてこの表にある。**
+ *
+ * `describeDefault` を書いていないキーは、既定値がそのまま効くキーである
+ * （文言は `describeDefault()` が `read` から組み立てる）。
+ */
+const CONFIG_SPECS: { readonly [K in ConfigKey]: ConfigSpec } = {
+  weekStartsOn: {
+    describe: "0（日曜）〜6（土曜）の整数",
+    fromJson: (value) => (isWeekStartsOn(value) ? value : undefined),
+    parseText: (text) =>
+      DECIMAL_INTEGER.test(text) && isWeekStartsOn(Number(text)) ? Number(text) : undefined,
+    read: (config) => String(config.weekStartsOn),
+    write: (config, value) => ({ ...config, weekStartsOn: asNumber("weekStartsOn", value) }),
+  },
+  "rounding.unitMinutes": {
+    describe: "1以上の整数（分）",
+    describeDefault: "既定（丸めません）",
+    ...POSITIVE_INTEGER,
+    // 未設定は空で表す。「丸めない」ことを 0 のような値で表すと、
+    // 「0 分単位で丸める」という書けない設定と見分けがつかない
+    read: (config) =>
+      config.rounding?.unitMinutes === undefined ? "" : String(config.rounding.unitMinutes),
+    write: (config, value) => ({
+      ...config,
+      rounding: { ...config.rounding, unitMinutes: asNumber("rounding.unitMinutes", value) },
+    }),
+  },
+  "rounding.mode": {
+    describe: `${ROUNDING_MODES.join(" / ")} のいずれか`,
+    describeDefault: "既定（丸めません）",
+    fromJson: (value) => (isRoundingMode(value) ? value : undefined),
+    parseText: (text) => (isRoundingMode(text) ? text : undefined),
+    read: (config) => config.rounding?.mode ?? "",
+    write: (config, value) => ({
+      ...config,
+      rounding: { ...config.rounding, mode: asRoundingMode("rounding.mode", value) },
+    }),
+  },
+  maxRunningHours: {
+    describe: "1以上の整数（時間）",
+    ...POSITIVE_INTEGER,
+    // **未設定でも空にしない。** 丸めと違い、書かなくても効いている値（既定 8）が
+    // あるので、空を見せると「上限が無い」と読める
+    read: (config) => String(config.maxRunningHours ?? DEFAULT_MAX_RUNNING_HOURS),
+    write: (config, value) => ({ ...config, maxRunningHours: asNumber("maxRunningHours", value) }),
+  },
+  timezone: {
+    describe: "IANA のタイムゾーン名（例: Asia/Tokyo）",
+    describeDefault: "既定（実行環境のタイムゾーン）",
+    // **判定は `Intl` に任せる**（`domain/timezone.ts`）。ゾーンの一覧は地域ごとに
+    // 増減するので、自前の表を持つと実際に使えるゾーンと食い違う
+    fromJson: (value) => (typeof value === "string" && isTimeZone(value) ? value : undefined),
+    parseText: (text) => (isTimeZone(text) ? text : undefined),
+    // 解決済みの設定（`ResolvedConfig`）を渡せば実効値が出る。未解決の `Config` では
+    // 空になるが、実行環境のゾーンをここで引くことはできない（domain に I/O を置かない）
+    read: (config) => config.timezone ?? "",
+    write: (config, value) => ({ ...config, timezone: asTimeZone("timezone", value) }),
+  },
+  defaultFormat: {
+    describe: `${EXPORT_FORMATS.join(" / ")} のいずれか`,
+    describeDefault: "既定（--format の指定が必要）",
+    fromJson: (value) => (isExportFormat(value) ? value : undefined),
+    // **大文字を受け付けない。** `--format CSV` を通すのは打鍵の揺れを吸収するため
+    // だが、保存される設定は `config get` が出す形と1対1にしたい
+    parseText: (text) => (isExportFormat(text) ? text : undefined),
+    // 未設定は空。丸めと同じで、書かなければ効く値が無い（`--format` が要る）
+    read: (config) => config.defaultFormat ?? "",
+    write: (config, value) => ({
+      ...config,
+      defaultFormat: asExportFormat("defaultFormat", value),
+    }),
+  },
+};
+
+/**
+ * 不正な値を捨てたときに、代わりに何を使うかを示す文言。
+ *
+ * **仕様に書いていないキーは、既定値をそのまま出す。** 出どころは `read` 1つなので、
+ * 既定を変えても文言が古くならない。
+ */
+function describeDefault(key: ConfigKey): string {
+  const spec = CONFIG_SPECS[key];
+
+  return spec.describeDefault ?? `既定値 ${spec.read(DEFAULT_CONFIG)}`;
+}
+
+/**
  * そのキーに書ける値の説明。エラーと警告の両方で使うので1箇所に持つ。
  *
  * コマンドラインオプション（`--week-starts-on`）のエラーからも使うため公開している。
  * 経路ごとに文言を書くと、同じ値を拒否したのに説明が食い違う。
  */
 export function describeConfigKey(key: ConfigKey): string {
-  switch (key) {
-    case "weekStartsOn": {
-      return "0（日曜）〜6（土曜）の整数";
-    }
-    case "rounding.unitMinutes": {
-      return "1以上の整数（分）";
-    }
-    case "rounding.mode": {
-      return `${ROUNDING_MODES.join(" / ")} のいずれか`;
-    }
-    case "maxRunningHours": {
-      return "1以上の整数（時間）";
-    }
-    case "timezone": {
-      return "IANA のタイムゾーン名（例: Asia/Tokyo）";
-    }
-    case "defaultFormat": {
-      return `${EXPORT_FORMATS.join(" / ")} のいずれか`;
-    }
-    default: {
-      // キーを増やして case を書き忘れると、ここで型検査が落ちる
-      const unhandled: never = key;
-      throw new Error(`設定キーの説明がありません: ${JSON.stringify(unhandled)}`);
-    }
-  }
-}
-
-/** JSON から読んだ値を検査する。書けない値なら `undefined`。 */
-function fromJson(key: ConfigKey, value: unknown): ConfigValue | undefined {
-  switch (key) {
-    case "weekStartsOn": {
-      return isWeekStartsOn(value) ? value : undefined;
-    }
-    case "rounding.unitMinutes": {
-      return isPositiveInteger(value) ? value : undefined;
-    }
-    case "rounding.mode": {
-      return isRoundingMode(value) ? value : undefined;
-    }
-    case "maxRunningHours": {
-      return isPositiveInteger(value) ? value : undefined;
-    }
-    case "timezone": {
-      return typeof value === "string" && isTimeZone(value) ? value : undefined;
-    }
-    case "defaultFormat": {
-      return isExportFormat(value) ? value : undefined;
-    }
-    default: {
-      const unhandled: never = key;
-      throw new Error(`設定キーの読み取りがありません: ${JSON.stringify(unhandled)}`);
-    }
-  }
+  return CONFIG_SPECS[key].describe;
 }
 
 /**
@@ -240,74 +322,15 @@ function fromJson(key: ConfigKey, value: unknown): ConfigValue | undefined {
  * 弾かれていた（レビューで指摘）。
  */
 export function parseConfigText(key: ConfigKey, text: string): ConfigValue | undefined {
-  switch (key) {
-    case "weekStartsOn": {
-      return DECIMAL_INTEGER.test(text) && isWeekStartsOn(Number(text)) ? Number(text) : undefined;
-    }
-    case "rounding.unitMinutes": {
-      return DECIMAL_INTEGER.test(text) && isPositiveInteger(Number(text))
-        ? Number(text)
-        : undefined;
-    }
-    case "rounding.mode": {
-      return isRoundingMode(text) ? text : undefined;
-    }
-    case "maxRunningHours": {
-      return DECIMAL_INTEGER.test(text) && isPositiveInteger(Number(text))
-        ? Number(text)
-        : undefined;
-    }
-    case "timezone": {
-      // **判定は `Intl` に任せる**（`domain/timezone.ts`）。ゾーンの一覧は地域ごとに
-      // 増減するので、自前の表を持つと実際に使えるゾーンと食い違う
-      return isTimeZone(text) ? text : undefined;
-    }
-    case "defaultFormat": {
-      // **大文字を受け付けない。** `--format CSV` を通すのは打鍵の揺れを吸収するため
-      // だが、保存される設定は `config get` が出す形と1対1にしたい
-      return isExportFormat(text) ? text : undefined;
-    }
-    default: {
-      const unhandled: never = key;
-      throw new Error(`設定キーの読み取りがありません: ${JSON.stringify(unhandled)}`);
-    }
-  }
-}
-
-/** 検査済みの値を設定に載せる。元の設定は書き換えない。 */
-function withValue(config: Config, key: ConfigKey, value: ConfigValue): Config {
-  switch (key) {
-    case "weekStartsOn": {
-      return { ...config, weekStartsOn: asNumber(key, value) };
-    }
-    case "rounding.unitMinutes": {
-      return { ...config, rounding: { ...config.rounding, unitMinutes: asNumber(key, value) } };
-    }
-    case "rounding.mode": {
-      return { ...config, rounding: { ...config.rounding, mode: asRoundingMode(key, value) } };
-    }
-    case "maxRunningHours": {
-      return { ...config, maxRunningHours: asNumber(key, value) };
-    }
-    case "timezone": {
-      return { ...config, timezone: asTimeZone(key, value) };
-    }
-    case "defaultFormat": {
-      return { ...config, defaultFormat: asExportFormat(key, value) };
-    }
-    default: {
-      const unhandled: never = key;
-      throw new Error(`設定キーの書き込みがありません: ${JSON.stringify(unhandled)}`);
-    }
-  }
+  return CONFIG_SPECS[key].parseText(text);
 }
 
 /**
  * 検査済みの値を、そのキーが持つ型に絞る。
  *
- * **キャスト（`value as number`）にしない。** `fromJson` / `parseConfigText` と
- * `withValue` は別々の `switch` なので、キーを足したときに片方だけ型を取り違えても
- * キャストでは気づけず、`weekStartsOn` に文字列が入ったまま集計へ流れていく。
+ * **キャスト（`value as number`）にしない。** 仕様の `fromJson` / `parseText` と
+ * `write` は別々の関数なので、キーを足したときに片方だけ型を取り違えてもキャストでは
+ * 気づけず、`weekStartsOn` に文字列が入ったまま集計へ流れていく。
  */
 function asNumber(key: ConfigKey, value: ConfigValue): number {
   if (typeof value !== "number") {
@@ -358,37 +381,7 @@ function isWeekStartsOn(value: unknown): value is number {
 
 /** 設定の値を文字列で読み出す（`config get` の出力）。 */
 export function formatConfigValue(config: Config, key: ConfigKey): string {
-  switch (key) {
-    case "weekStartsOn": {
-      return String(config.weekStartsOn);
-    }
-    case "rounding.unitMinutes": {
-      // 未設定は空で表す。「丸めない」ことを 0 のような値で表すと、
-      // 「0 分単位で丸める」という書けない設定と見分けがつかない
-      return config.rounding?.unitMinutes === undefined ? "" : String(config.rounding.unitMinutes);
-    }
-    case "rounding.mode": {
-      return config.rounding?.mode ?? "";
-    }
-    case "maxRunningHours": {
-      // **未設定でも空にしない。** 丸めと違い、書かなくても効いている値（既定 8）が
-      // あるので、空を見せると「上限が無い」と読める
-      return String(config.maxRunningHours ?? DEFAULT_MAX_RUNNING_HOURS);
-    }
-    case "timezone": {
-      // 解決済みの設定（`ResolvedConfig`）を渡せば実効値が出る。未解決の `Config` では
-      // 空になるが、実行環境のゾーンをここで引くことはできない（domain に I/O を置かない）
-      return config.timezone ?? "";
-    }
-    case "defaultFormat": {
-      // 未設定は空。丸めと同じで、書かなければ効く値が無い（`--format` が要る）
-      return config.defaultFormat ?? "";
-    }
-    default: {
-      const unhandled: never = key;
-      throw new Error(`設定キーの表示がありません: ${JSON.stringify(unhandled)}`);
-    }
-  }
+  return CONFIG_SPECS[key].read(config);
 }
 
 export function isConfigKey(value: string): value is ConfigKey {
@@ -448,7 +441,7 @@ export function parseConfigFile(raw: unknown): ConfigResult {
       continue;
     }
 
-    const value = fromJson(key, found.value);
+    const value = CONFIG_SPECS[key].fromJson(found.value);
     if (value === undefined) {
       warnings.push(
         `${key} の値が不正です: ${JSON.stringify(found.value)}（${describeConfigKey(key)}）。` +
@@ -457,7 +450,7 @@ export function parseConfigFile(raw: unknown): ConfigResult {
       continue;
     }
 
-    config = withValue(config, key, value);
+    config = CONFIG_SPECS[key].write(config, value);
   }
 
   return { config, warnings };
@@ -565,35 +558,6 @@ function unreadableWarnings(
 }
 
 /**
- * 不正な値を捨てたときに、代わりに何を使うかを示す文言。
- *
- * **未設定を既定とするキーは、空文字を見せない。**「既定値  を使います」では何が起きたのか
- * 読めない。丸めは書かなければ丸めないので、そのことをそのまま書く。
- */
-function describeDefault(key: ConfigKey): string {
-  switch (key) {
-    case "weekStartsOn":
-    case "maxRunningHours": {
-      return `既定値 ${formatConfigValue(DEFAULT_CONFIG, key)}`;
-    }
-    case "rounding.unitMinutes":
-    case "rounding.mode": {
-      return "既定（丸めません）";
-    }
-    case "timezone": {
-      return "既定（実行環境のタイムゾーン）";
-    }
-    case "defaultFormat": {
-      return "既定（--format の指定が必要）";
-    }
-    default: {
-      const unhandled: never = key;
-      throw new Error(`既定値の説明がありません: ${JSON.stringify(unhandled)}`);
-    }
-  }
-}
-
-/**
  * 環境変数を設定ファイルの値の上に重ねる。**環境変数のほうが優先される。**
  *
  * 一時的に別の設定で動かしたいとき（スクリプトや検証）に、ファイルを書き換えずに
@@ -627,7 +591,7 @@ export function overrideFromEnv(
       continue;
     }
 
-    config = withValue(config, key, value);
+    config = CONFIG_SPECS[key].write(config, value);
   }
 
   return { config, warnings };
@@ -648,7 +612,7 @@ export function withConfigValue(config: Config, key: ConfigKey, text: string): C
     );
   }
 
-  return withValue(config, key, value);
+  return CONFIG_SPECS[key].write(config, value);
 }
 
 function isRecordObject(value: unknown): value is Record<string, unknown> {
