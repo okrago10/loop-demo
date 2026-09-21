@@ -41,10 +41,10 @@ export function createSwitchCommand(deps: CommandDeps, loadConfig: LoadConfig): 
     ...COMMAND,
 
     async run(argv: readonly string[], io: CliIo): Promise<void> {
-      const args = parseArgs(argv, COMMAND);
-
-      // **設定は引数の形を確かめたあとに読む（#64）。** `--at` の解釈にゾーンが要る
+      // **設定を先に読む（#64）。** `--at` の解釈にゾーンが要る
       const config = await loadWarnedConfig(loadConfig, io);
+
+      const args = parseArgs(argv, COMMAND);
       // **`now` は1回だけ取る**（`start` / `stop` と同じ形）。`--at` の解釈と表示で
       // 別々に呼ぶと、日付が変わる瞬間だけ「同じ日か」の判定が2つの時刻に基づく
       const now = deps.now();
