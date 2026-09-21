@@ -2,6 +2,7 @@ import { dayPeriodOf, parseDayPeriod } from "./day.js";
 import type { Period } from "./period.js";
 import { instantOf, shiftWallDays, wallClockIn } from "./timezone.js";
 import { assertWeekStartsOn, DEFAULT_WEEK_STARTS_ON, weekPeriodOf } from "./week.js";
+import { InvalidInputError } from "./invalid-input.js";
 
 /**
  * 期間の指定を1つの書き方に揃える。
@@ -151,7 +152,7 @@ function parseRange(expression: string, timeZone: string): Period {
   }
 
   if (last.end.getTime() <= start.start.getTime()) {
-    throw new Error(`期間の終わりが始まりより前です: ${expression}`);
+    throw new InvalidInputError(`期間の終わりが始まりより前です: ${expression}`);
   }
 
   return { start: start.start, end: last.end };
@@ -166,7 +167,7 @@ function relativeDaysPeriod(
 ): Period {
   const days = Number(digits);
   if (!Number.isInteger(days) || days < 1) {
-    throw new Error(`直近の日数は1以上で指定してください: ${expression}`);
+    throw new InvalidInputError(`直近の日数は1以上で指定してください: ${expression}`);
   }
 
   const today = dayPeriodOf(now, timeZone);
@@ -196,7 +197,7 @@ function monthPeriod(now: Date, timeZone: string): Period {
 
 /** 解釈できなかったときのエラー。候補を並べて、打ち直せるようにする。 */
 function unsupported(expression: string): Error {
-  return new Error(
+  return new InvalidInputError(
     `期間の指定を解釈できません: ${expression}\n使える形式: ${CANDIDATES.join(" / ")}`,
   );
 }

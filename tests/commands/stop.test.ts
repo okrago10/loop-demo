@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { UserError } from "../../src/cli.js";
+import { isUserCaused, UserError } from "../../src/cli.js";
 import { createStartCommand } from "../../src/commands/start.js";
 import { createStopCommand } from "../../src/commands/stop.js";
 import { createJsonlStore } from "../../src/store/jsonl-store.js";
@@ -197,7 +197,7 @@ describe("stop --at", () => {
 
     await expect(
       createStopCommand(deps(now), testLoadConfig()).run(["--at", "00:01"], io),
-    ).rejects.toThrow(UserError);
+    ).rejects.toSatisfy(isUserCaused);
   });
 
   it("開始より前を指定して失敗しても、実行中のままにする", async () => {

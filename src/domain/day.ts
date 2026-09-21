@@ -1,5 +1,6 @@
 import type { Period } from "./period.js";
 import { instantOf, shiftWallDays, startOfDayIn, wallClockIn } from "./timezone.js";
+import { InvalidInputError } from "./invalid-input.js";
 
 /**
  * 暦日の扱い。
@@ -37,7 +38,7 @@ export function dayPeriodOf(moment: Date, timeZone: string): Period {
 export function parseDayPeriod(value: string, timeZone: string): Period {
   const match = DAY_PATTERN.exec(value);
   if (match === null) {
-    throw new Error(`日付は YYYY-MM-DD で指定してください: ${value}`);
+    throw new InvalidInputError(`日付は YYYY-MM-DD で指定してください: ${value}`);
   }
 
   const [, year, month, day] = match;
@@ -54,7 +55,7 @@ export function parseDayPeriod(value: string, timeZone: string): Period {
   );
 
   if (formatDay(start, timeZone) !== value) {
-    throw new Error(`存在しない日付です: ${value}`);
+    throw new InvalidInputError(`存在しない日付です: ${value}`);
   }
 
   return { start, end: nextDay(start, timeZone) };

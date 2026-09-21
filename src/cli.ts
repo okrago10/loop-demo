@@ -27,6 +27,7 @@ import {
 import { createJsonlStore } from "./store/jsonl-store.js";
 import { LockTimeoutError } from "./store/lock.js";
 import { maxRunningMsOf } from "./domain/config.js";
+import { InvalidInputError } from "./domain/invalid-input.js";
 import { overrunWarning } from "./domain/overrun.js";
 import { DEFAULT_WIDTH, type Terminal } from "./format/terminal.js";
 import { resolveConfigPath, resolveStorePath, type Store } from "./store/store.js";
@@ -52,6 +53,31 @@ export class UserError extends Error {
     super(message);
     this.name = "UserError";
   }
+}
+
+/**
+ * 利用者が直せる失敗か。**終了コードの規則はここが唯一。**
+ *
+ * 3つある。
+ *
+ * - `UserError` — コマンドが直接投げるもの（引数の打ち間違い、実行中が無い、など）
+ * - `InvalidInputError` — domain が入力を弾いたもの（`domain/invalid-input.ts`）
+ * - `LockTimeoutError` — ロック待ちのタイムアウト（#11）。別の端末で動いている・
+ *   異常終了でロックが残っている、という利用者が直せる状態
+ *
+ * **以前は domain の例外を各コマンドが `UserError` に翻訳していた**（同じ3行が10箇所）。
+ * 書き忘れても画面の文言は変わらず、**終了コードだけが 1 から 2 に変わる**ので目視では
+ * 気づけない。規則をここに1つ置けば、コマンドが増えても書き忘れる場所が無い（#111）。
+ *
+ * **公開しているのはテストのため。** コマンドの単体テストは `run` を通さずに例外を
+ * 受け取るので、型を直接見ると「どの型で表されるか」という実装の都合を固定してしまう。
+ */
+export function isUserCaused(error: unknown): boolean {
+  return (
+    error instanceof UserError ||
+    error instanceof InvalidInputError ||
+    error instanceof LockTimeoutError
+  );
 }
 
 /** CLI の入出力。テストから差し替えられるよう引数で受け取る。 */
@@ -296,11 +322,7 @@ export async function run(argv: readonly string[], deps: CliDeps): Promise<numbe
   } catch (error) {
     deps.err(messageOf(error));
 
-    // ロック待ちのタイムアウト（#11）も利用者起因として扱う。tock の不具合ではなく、
-    // 別の端末で動いている・異常終了でロックが残っている、という利用者が直せる状態
-    return error instanceof UserError || error instanceof LockTimeoutError
-      ? EXIT_USAGE
-      : EXIT_INTERNAL;
+    return isUserCaused(error) ? EXIT_USAGE : EXIT_INTERNAL;
   }
 }
 

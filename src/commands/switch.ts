@@ -1,16 +1,11 @@
-import { type CliIo, type Command, UserError } from "../cli.js";
+import type { CliIo, Command } from "../cli.js";
+import { parseTags } from "../domain/tag.js";
 import { createEntry, type Entry, startedAt } from "../domain/entry.js";
 import { durationMs } from "../domain/period.js";
 import { formatDuration } from "../format/duration.js";
 import { formatMoment } from "../format/time.js";
 import type { LoadConfig } from "../store/config-store.js";
-import {
-  type CommandDeps,
-  loadWarnedConfig,
-  parseDescription,
-  rejectUnknownArgs,
-  resolveAt,
-} from "./args.js";
+import { type CommandDeps, loadWarnedConfig, rejectUnknownArgs, resolveAt } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 
 /**
@@ -45,7 +40,7 @@ export function createSwitchCommand(deps: CommandDeps, loadConfig: LoadConfig): 
       const now = deps.now();
       const { at, rest } = resolveAt(argv, now, config.timezone);
       rejectUnknownArgs(rest, { command: "switch", usage: USAGE });
-      const { tags, note } = parseDescription(rest.join(" "));
+      const { tags, note } = parseTags(rest.join(" "));
 
       const next = createEntry(
         { start: at, tags, ...(note === undefined ? {} : { note }) },
@@ -86,23 +81,19 @@ export function createSwitchCommand(deps: CommandDeps, loadConfig: LoadConfig): 
 /**
  * 実行中エントリを指定時刻で確定させる。
  *
- * `createEntry` は `end < start` を弾く。打ち間違いなので `UserError` に翻訳する
- * （`stop` と同じ扱い）。
+ * `createEntry` は `end < start` を弾く。打ち間違いとしての終了コードは
+ * `InvalidInputError` が運ぶので、ここで翻訳しない（#111。`stop` と同じ扱い）。
  */
 function stopAt(running: Entry, at: Date): Entry {
-  try {
-    return createEntry(
-      {
-        start: running.start,
-        end: at,
-        tags: running.tags,
-        ...(running.note === undefined ? {} : { note: running.note }),
-      },
-      { newId: () => running.id },
-    );
-  } catch (error) {
-    throw new UserError(error instanceof Error ? error.message : String(error));
-  }
+  return createEntry(
+    {
+      start: running.start,
+      end: at,
+      tags: running.tags,
+      ...(running.note === undefined ? {} : { note: running.note }),
+    },
+    { newId: () => running.id },
+  );
 }
 
 /** 開始したことを伝える1行の見出し。`start` と同じ形にする。 */

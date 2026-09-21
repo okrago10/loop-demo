@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { UserError } from "../../src/cli.js";
+import { isUserCaused, UserError } from "../../src/cli.js";
 import { createStartCommand } from "../../src/commands/start.js";
 import { createSummaryCommand, createTodayCommand } from "../../src/commands/summary.js";
 import { createStopCommand } from "../../src/commands/stop.js";
@@ -215,7 +215,7 @@ describe("summary --day", () => {
   ])("--day が不正（%s）なら UserError で失敗する", async (_label, day) => {
     await expect(
       createSummaryCommand(deps(local(13, 12, 0)), defaultConfig).run(["--day", day], io),
-    ).rejects.toThrow(UserError);
+    ).rejects.toSatisfy(isUserCaused);
   });
 
   it("--day の値が無い場合は UserError で失敗する", async () => {

@@ -107,7 +107,7 @@ export function createEditCommand(deps: CommandDeps, loadConfig: LoadConfig): Co
           ...(noteValue === undefined ? {} : { note: noteValue }),
         };
 
-        const candidate = translate(() => applyEdit(target, changes));
+        const candidate = applyEdit(target, changes);
 
         const conflict = findOverlapping(candidate, entries);
         if (conflict !== undefined) {
@@ -180,7 +180,7 @@ function parseTagList(value: string): readonly string[] {
   const tags: string[] = [];
 
   for (const word of words) {
-    const tag = translate(() => normalizeTag(word));
+    const tag = normalizeTag(word);
     if (!tags.includes(tag)) {
       tags.push(tag);
     }
@@ -196,13 +196,4 @@ function describe(entry: Entry): string {
   );
 
   return label.length === 0 ? "（名前なし）" : label.join(" ");
-}
-
-/** domain のエラーを利用者向けに翻訳する（domain は `UserError` を知らない）。 */
-function translate<T>(run: () => T): T {
-  try {
-    return run();
-  } catch (error) {
-    throw new UserError(error instanceof Error ? error.message : String(error));
-  }
 }

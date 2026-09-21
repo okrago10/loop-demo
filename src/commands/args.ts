@@ -1,5 +1,4 @@
 import { type CliIo, UserError } from "../cli.js";
-import { parseTags } from "../domain/tag.js";
 import { instantOf, wallClockIn } from "../domain/timezone.js";
 import { type CommandUsage, formatUsageBlock } from "../format/help.js";
 import { formatClockSeconds } from "../format/time.js";
@@ -188,27 +187,6 @@ export function resolveAt(
   const { value, rest } = takeOption(argv, "--at");
 
   return { at: value === undefined ? now : resolveClockTime(value, now, timeZone), rest };
-}
-
-/**
- * 入力文字列から作業名とタグを取り出す。
- *
- * 解釈と正規化は `domain/tag.ts` が持つ。ここでは domain が投げるエラーを利用者向けの
- * `UserError`（終了コード 1）に翻訳するだけにする。タグの表記を2箇所で決めると、
- * 片方だけ直したときに集計と入力の解釈が食い違う。
- *
- * domain 側は `UserError` を知らない（`cli.ts` を参照すると依存の向きが逆になる）ため、
- * 翻訳はこの層の責務になる。`stop` が `createEntry` のエラーを翻訳しているのと同じ形。
- */
-export function parseDescription(text: string): {
-  tags: readonly string[];
-  note: string | undefined;
-} {
-  try {
-    return parseTags(text);
-  } catch (error) {
-    throw new UserError(error instanceof Error ? error.message : String(error));
-  }
 }
 
 /**
