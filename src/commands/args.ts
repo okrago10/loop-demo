@@ -1,6 +1,4 @@
 import { type CliIo, UserError } from "../cli.js";
-import { parsePeriodExpression } from "../domain/period-expression.js";
-import type { Period } from "../domain/period.js";
 import { instantOf, wallClockIn } from "../domain/timezone.js";
 import { type CommandUsage, formatUsageBlock } from "../format/help.js";
 import { formatClockSeconds } from "../format/time.js";
@@ -189,26 +187,6 @@ export function resolveAt(
   const { value, rest } = takeOption(argv, "--at");
 
   return { at: value === undefined ? now : resolveClockTime(value, now, timeZone), rest };
-}
-
-/**
- * `--period` の解決。省略は「全期間」を表す `undefined`。
- *
- * **`log` と `export` で同じものを使う。** 範囲で表さず、絞らないことを値の無さで表す
- * （#57）。`this-week` / `last-week` は設定の週の開始曜日に従うので、どちらか一方だけが
- * 別の「今週」を持つと、画面で見た範囲と書き出した範囲が食い違う。
- */
-export function resolvePeriodOption(
-  value: string | undefined,
-  now: Date,
-  config: Pick<ResolvedConfig, "timezone" | "weekStartsOn">,
-): Period | undefined {
-  return value === undefined
-    ? undefined
-    : parsePeriodExpression(value, now, {
-        timeZone: config.timezone,
-        weekStartsOn: config.weekStartsOn,
-      });
 }
 
 /**

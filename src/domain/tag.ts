@@ -44,23 +44,48 @@ const MARKER = "#";
  * | `#` が先頭以外にある | `"a#b"`、`"##work"` |
  */
 export function normalizeTag(raw: string): string {
+  return normalizeWith(raw, (message) => new InvalidInputError(message));
+}
+
+/**
+ * **保存済みのタグを正規化する。不正なら素の `Error`（内部エラー）。**
+ *
+ * 保存されている値は利用者がいま打ったものではない。手で編集して壊れた記録が届いたときに
+ * 終了コード 1 を返すと、**打ち間違いと見分けがつかない**——画面の文言は同じで終了コード
+ * だけが変わるという、#111 が問題にした形そのものになる。読み込み時に弾ききれなかった値が
+ * ここまで来ること自体が内部の不整合なので、内部エラーとして見えなければならない。
+ *
+ * 正規化の規則は `normalizeTag` と同じものを使う。2つに書き分けると、入力と保存済みで
+ * 通る値が食い違う。
+ */
+function normalizeStoredTag(tag: string): string {
+  return normalizeWith(tag, (message) => new Error(message));
+}
+
+/**
+ * 正規化の本体。**不正な値をどう表すかは呼び出し側が決める。**
+ *
+ * 同じ文字列でも、利用者が打った値なら打ち間違い、保存済みの値なら内部の不整合になる。
+ * 判定は同じで、扱いだけが違う。
+ */
+function normalizeWith(raw: string, fail: (message: string) => Error): string {
   const withoutMarker = stripMarker(raw.trim());
 
   if (withoutMarker === "") {
-    throw new InvalidInputError(`タグ名が空です: ${JSON.stringify(raw)}`);
+    throw fail(`タグ名が空です: ${JSON.stringify(raw)}`);
   }
 
   const segments = withoutMarker.split(SEPARATOR).map((segment) => segment.trim());
 
   for (const segment of segments) {
     if (segment === "") {
-      throw new InvalidInputError(`タグの階層が空です: ${JSON.stringify(raw)}`);
+      throw fail(`タグの階層が空です: ${JSON.stringify(raw)}`);
     }
     if (/\s/.test(segment)) {
-      throw new InvalidInputError(`タグに空白は使えません: ${JSON.stringify(raw)}`);
+      throw fail(`タグに空白は使えません: ${JSON.stringify(raw)}`);
     }
     if (segment.includes(MARKER)) {
-      throw new InvalidInputError(`タグの途中に ${MARKER} は使えません: ${JSON.stringify(raw)}`);
+      throw fail(`タグの途中に ${MARKER} は使えません: ${JSON.stringify(raw)}`);
     }
   }
 
@@ -83,7 +108,8 @@ function stripMarker(value: string): string {
  * 集計側（#18 / #19）は、この関数が返したすべてのタグに時間を足す。
  */
 export function expandTag(tag: string): readonly string[] {
-  const segments = normalizeTag(tag).split(SEPARATOR);
+  // 渡るのは保存済みのタグ（集計が `entry.tags` を展開する経路）。打ち間違いではない
+  const segments = normalizeStoredTag(tag).split(SEPARATOR);
 
   return segments.map((_segment, index) => segments.slice(0, index + 1).join(SEPARATOR));
 }
@@ -110,7 +136,8 @@ export function expandTags(tags: readonly string[]): readonly string[] {
 
 /** 直接の親を返す。トップレベルのタグには親がないので `undefined`。 */
 export function parentTag(tag: string): string | undefined {
-  const segments = normalizeTag(tag).split(SEPARATOR);
+  // `expandTag` と同じく、渡るのは保存済みのタグ
+  const segments = normalizeStoredTag(tag).split(SEPARATOR);
 
   return segments.length === 1 ? undefined : segments.slice(0, -1).join(SEPARATOR);
 }

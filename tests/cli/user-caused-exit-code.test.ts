@@ -1,9 +1,16 @@
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { buildRuntime, EXIT_USAGE, isUserCaused, run, UserError } from "../../src/cli.js";
+import {
+  buildRuntime,
+  EXIT_INTERNAL,
+  EXIT_USAGE,
+  isUserCaused,
+  run,
+  UserError,
+} from "../../src/cli.js";
 import { PLAIN_TERMINAL } from "../../src/format/terminal.js";
 import { InvalidInputError } from "../../src/domain/invalid-input.js";
 import { LockTimeoutError } from "../../src/store/lock.js";
@@ -113,6 +120,41 @@ describe("入力起因の失敗は終了コード 1 になる（DoD）", () => {
     }
 
     expect(await readdir(dir)).toEqual(before);
+  });
+});
+
+describe("保存済みの値が壊れている場合は内部エラーのまま（DoD）", () => {
+  /** 読み込みの検査をすり抜ける、手で編集して壊した記録を1行置く。 */
+  async function writeBrokenEntry(tags: readonly string[]): Promise<void> {
+    const entry = {
+      id: "broken-entry",
+      start: "2026-08-16T01:00:00.000Z",
+      end: "2026-08-16T02:00:00.000Z",
+      tags,
+      note: "手で編集した記録",
+    };
+
+    await writeFile(
+      join(dir, "entries.jsonl"),
+      `${JSON.stringify({ v: 1, op: "append", entry })}\n`,
+    );
+  }
+
+  it("**空白を含むタグが保存されていたら終了コード 2**（打ち間違いと見分けがつくように）", async () => {
+    await writeBrokenEntry(["a b"]);
+
+    // 集計は `expandTags` で階層を展開する。そこに壊れたタグが届く
+    expect(await invoke(["summary", "--day", "2026-08-16"])).toBe(EXIT_INTERNAL);
+  });
+
+  it("同じ文字列でも、打ったのが利用者なら終了コード 1（対比）", async () => {
+    expect(await invoke(["log", "--tag", "a b"])).toBe(EXIT_USAGE);
+  });
+
+  it("壊れていないタグなら集計できる（検査そのものの確かめ）", async () => {
+    await writeBrokenEntry(["proj/tock"]);
+
+    expect(await invoke(["summary", "--day", "2026-08-16"])).toBe(0);
   });
 });
 

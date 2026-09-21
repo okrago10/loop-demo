@@ -1,4 +1,6 @@
 import { type CliIo, type Command, UserError } from "../cli.js";
+import { parsePeriodExpression } from "../domain/period-expression.js";
+import type { Period } from "../domain/period.js";
 import type { Config } from "../domain/config.js";
 import type { Entry } from "../domain/entry.js";
 import {
@@ -9,13 +11,7 @@ import {
 } from "../domain/export.js";
 import { type CsvOptions, formatCsvLines, formatJsonLines } from "../format/export.js";
 import type { LoadConfig } from "../store/config-store.js";
-import {
-  type CommandDeps,
-  rejectUnknownArgs,
-  resolvePeriodOption,
-  takeFlag,
-  takeOption,
-} from "./args.js";
+import { type CommandDeps, rejectUnknownArgs, takeFlag, takeOption } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 
 /**
@@ -109,7 +105,7 @@ export function createExportCommand(deps: CommandDeps, loadConfig: LoadConfig): 
       // 来るので、解決を待たないと json かどうかが決まらない（#65）
       assertSanitizable(sanitize, format);
 
-      const period = resolvePeriodOption(periodValue, deps.now(), config);
+      const period = resolvePeriod(periodValue, deps.now(), config.weekStartsOn, config.timezone);
 
       // 期間の指定が無ければ全件。**あるときだけ store 側で絞る**——読み込む量が
       // 減るのは範囲があるときだけで、無い場合に広い範囲を作る理由は無い（#57）
@@ -121,6 +117,26 @@ export function createExportCommand(deps: CommandDeps, loadConfig: LoadConfig): 
       }
     },
   };
+}
+
+/**
+ * `--period` の解決。省略は「全期間」を表す `undefined`。
+ *
+ * **`this-week` / `last-week` は設定の週の開始曜日に従う**（`log` / `week` と同じ）。
+ * 書き出しだけが別の「今週」を持つと、画面で見た範囲と書き出した範囲が食い違う。
+ */
+function resolvePeriod(
+  value: string | undefined,
+  now: Date,
+  weekStartsOn: number,
+  timeZone: string,
+): Period | undefined {
+  // 省略は「全期間」。範囲で表さず、絞らないことを値の無さで表す（#57）
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return parsePeriodExpression(value, now, { timeZone, weekStartsOn });
 }
 
 /**

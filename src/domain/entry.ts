@@ -97,19 +97,22 @@ function toIsoString(value: Date | string, label: string): string {
     return value.toISOString();
   }
 
+  // **文字列で渡るのは保存済みの値だけ**（`stop` / `switch` が `running.start` を渡す経路）。
+  // 利用者が打った時刻は `--at` の解釈を通って `Date` で届くので、ここには来ない。
+  // 読み込み時（`isStoredTimestamp`）で弾ききれなかった値がここまで来るのは内部の不整合
   if (!ISO_8601_WITH_ZONE.test(value)) {
-    throw new InvalidInputError(
+    throw new Error(
       `${label} はタイムゾーン付きの ISO 8601 で指定してください: ${JSON.stringify(value)}`,
     );
   }
 
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
-    throw new InvalidInputError(`${label} が日時として解釈できません: ${value}`);
+    throw new Error(`${label} が日時として解釈できません: ${value}`);
   }
 
   if (!isRealCalendarDate(value)) {
-    throw new InvalidInputError(`${label} に存在しない日付が指定されています: ${value}`);
+    throw new Error(`${label} に存在しない日付が指定されています: ${value}`);
   }
 
   return parsed.toISOString();

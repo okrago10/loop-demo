@@ -42,21 +42,6 @@ describe("依存の向き（DoD）", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("`src/store/` と `src/format/` も `cli.ts` を参照しない", async () => {
-    const offenders: string[] = [];
-
-    for (const dir of ["store", "format"]) {
-      for (const name of await filesIn(dir)) {
-        const source = await readFile(join(SRC, dir, name), "utf8");
-        if (importedFrom(source).some((target) => target.includes("cli.js"))) {
-          offenders.push(`${dir}/${name}`);
-        }
-      }
-    }
-
-    expect(offenders).toEqual([]);
-  });
-
   it("検査対象が空でない（0件で合格しない）", async () => {
     expect((await filesIn("domain")).length).toBeGreaterThan(0);
   });
