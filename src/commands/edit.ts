@@ -7,7 +7,7 @@ import type { LoadConfig } from "../store/config-store.js";
 import { type CommandDeps, loadWarnedConfig, parseArgs, resolveClockTimeOn } from "./args.js";
 import { shortenId, shortIdLength } from "../domain/entry-id.js";
 import type { CommandUsage } from "../format/help.js";
-import { resolveEntry } from "./lookup.js";
+import { resolveEntry, takeEntryId } from "./lookup.js";
 
 /**
  * 記録を修正する。
@@ -59,7 +59,7 @@ export function createEditCommand(deps: CommandDeps, loadConfig: LoadConfig): Co
       const tagsValue = args.option("--tags");
       const noteValue = args.option("--note");
 
-      const id = takeId(args.positional);
+      const id = takeEntryId(args.positional, "修正する");
       if (
         startValue === undefined &&
         endValue === undefined &&
@@ -150,25 +150,6 @@ export function createEditCommand(deps: CommandDeps, loadConfig: LoadConfig): Co
  */
 function endBaseDate(entry: Entry, now: Date): Date {
   return endedAt(entry) ?? now;
-}
-
-/**
- * 位置引数から id を1つ取り出す。
- *
- * **id を必須にし、2つ以上は弾く。** 省略を許して「実行中の記録」を暗黙の対象にすると、
- * 直したつもりの記録と実際に直る記録が食い違う。
- */
-function takeId(positional: readonly string[]): string {
-  const [id, ...extra] = positional;
-
-  if (id === undefined || id.trim() === "") {
-    throw new UserError("修正する記録の id を指定してください（tock log で確認できます）");
-  }
-  if (extra.length > 0) {
-    throw new UserError(`id は1つだけ指定してください: ${positional.join(" ")}`);
-  }
-
-  return id;
 }
 
 /**

@@ -3,7 +3,7 @@ import type { Entry } from "../domain/entry.js";
 import { type CommandDeps, parseArgs } from "./args.js";
 import { shortenId, shortIdLength } from "../domain/entry-id.js";
 import type { CommandUsage } from "../format/help.js";
-import { resolveEntry } from "./lookup.js";
+import { resolveEntry, takeEntryId } from "./lookup.js";
 
 /**
  * 削除してよいかを尋ねる。
@@ -51,7 +51,7 @@ export function createRmCommand(deps: CommandDeps, confirm: Confirm): Command {
       const args = parseArgs(argv, COMMAND);
       const skipConfirm = args.flag("--yes");
 
-      const id = takeId(args.positional);
+      const id = takeEntryId(args.positional, "削除する");
 
       // **消せるものかを先に確かめる。** 存在しない id で確認を出すと、
       // 「はい」と答えたのに失敗する流れになる
@@ -84,26 +84,6 @@ export function createRmCommand(deps: CommandDeps, confirm: Confirm): Command {
       io.out(`id: ${shown}`);
     },
   };
-}
-
-/**
- * 位置引数から id を1つ取り出す。
- *
- * **id を必須にし、2つ以上は弾く。** 省略を許すと、どの記録が消えるのか打った人に
- * 分からない。まとめて消す指定（期間・タグでの一括削除）は入れていない——
- * 取り消せない操作なので、対象を1件に限る。
- */
-function takeId(positional: readonly string[]): string {
-  const [id, ...extra] = positional;
-
-  if (id === undefined || id.trim() === "") {
-    throw new UserError("削除する記録の id を指定してください（tock log で確認できます）");
-  }
-  if (extra.length > 0) {
-    throw new UserError(`id は1つだけ指定してください: ${positional.join(" ")}`);
-  }
-
-  return id;
 }
 
 /** 記録を1行で表す。何を消すのかが分かる程度の情報を出す。 */

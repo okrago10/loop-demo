@@ -3,7 +3,8 @@ import { matchById, shortenId, shortIdLength } from "../domain/entry-id.js";
 import type { Entry } from "../domain/entry.js";
 
 /**
- * id で記録を引く。
+ * 記録を名指しする。利用者が打った id から記録を決める向きと、決めた記録を利用者に示す
+ * 向きの両方を持つ。
  *
  * **`Store` に「id で1件取る」操作は無い**ため、全件を得てから絞る。編集・削除（#17）が
  * 同じ引き当てを必要とするので、規則をここに集約する。
@@ -11,6 +12,26 @@ import type { Entry } from "../domain/entry.js";
  * 全件の取得は `Store.listAll`（#57）を使う。以前は `listByRange` に `Date` が表せる
  * 最大幅を渡していたが、その細工は #57 で解消した。
  */
+
+/**
+ * 位置引数から id を1つ取り出す。`action` はエラー文言に入れる動詞（「修正する」など）。
+ *
+ * **id を必須にし、2つ以上は弾く。** 省略を許して「実行中の記録」を暗黙の対象にすると、
+ * 直したつもりの記録と実際に直る記録が食い違う。削除では、どの記録が消えるのか打った人に
+ * 分からなくなる。まとめて消す指定（期間・タグでの一括削除）も同じ理由で入れていない。
+ */
+export function takeEntryId(positional: readonly string[], action: string): string {
+  const [id, ...extra] = positional;
+
+  if (id === undefined || id.trim() === "") {
+    throw new UserError(`${action}記録の id を指定してください（tock log で確認できます）`);
+  }
+  if (extra.length > 0) {
+    throw new UserError(`id は1つだけ指定してください: ${positional.join(" ")}`);
+  }
+
+  return id;
+}
 
 /**
  * id または その接頭辞から記録を1件に決める。決まらなければ `UserError`。
