@@ -11,7 +11,7 @@ import {
 } from "../domain/export.js";
 import { type CsvOptions, formatCsvLines, formatJsonLines } from "../format/export.js";
 import type { LoadConfig } from "../store/config-store.js";
-import { type CommandDeps, parseArgs } from "./args.js";
+import { type CommandDeps, loadWarnedConfig, parseArgs } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 
 /**
@@ -102,10 +102,7 @@ export function createExportCommand(deps: CommandDeps, loadConfig: LoadConfig): 
       // 失敗理由は引数だけで決まるので、設定ファイルの警告を先に見せる理由がない
       assertSanitizable(sanitize, given);
 
-      const { config, warnings } = await loadConfig();
-      for (const warning of warnings) {
-        io.err(warning);
-      }
+      const config = await loadWarnedConfig(loadConfig, io);
 
       const format = resolveFormat(given, config);
 

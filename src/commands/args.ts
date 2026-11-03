@@ -245,8 +245,9 @@ export function resolveAt(value: string | undefined, now: Date, timeZone: string
 /**
  * 設定を読み、警告を stderr に出して解決済みの設定を返す。
  *
- * **すべてのコマンドがこの形で読む。** 各コマンドが自前で警告を回すと、出す順番や
- * 出し忘れがコマンドごとに食い違う（`stop` だけ `--auto` のときしか出していなかった）。
+ * **`LoadConfig` を受け取るコマンドはすべてこの形で読む。** 各コマンドが自前で警告を
+ * 回すと、出す順番や出し忘れがコマンドごとに食い違う（`stop` だけ `--auto` のときしか
+ * 出していなかった）。
  *
  * 返るのは `ResolvedConfig` なので、`timezone` は必ず入っている（#64）。
  */

@@ -6,7 +6,7 @@ import { normalizeTag } from "../domain/tag.js";
 import { shortIdLength } from "../domain/entry-id.js";
 import { formatLogLines } from "../format/log.js";
 import type { LoadConfig } from "../store/config-store.js";
-import { type CommandDeps, parseArgs } from "./args.js";
+import { type CommandDeps, loadWarnedConfig, parseArgs } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 
 /**
@@ -73,10 +73,7 @@ export function createLogCommand(deps: CommandDeps, loadConfig: LoadConfig): Com
       const tag = tagValue === undefined ? undefined : normalizeTag(tagValue);
       const limit = resolveLimit(limitValue);
 
-      const { config, warnings } = await loadConfig();
-      for (const warning of warnings) {
-        io.err(warning);
-      }
+      const config = await loadWarnedConfig(loadConfig, io);
 
       const period = resolvePeriod(periodValue, now, config.weekStartsOn, config.timezone);
 
