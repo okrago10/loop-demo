@@ -47,6 +47,16 @@ export function describeEntry(entry: Entry): string {
 }
 
 /**
+ * 記録の短縮 id。打った文字列ではなく、引き当てた記録の id を `log` の一覧と同じ表記で示す。
+ *
+ * **`entries` には保存されている全記録を渡す。** 桁数は全記録の中で重複しない長さで
+ * 決まるので、絞り込んだ一覧から決めると、出した文字列で引けない記録が生まれる。
+ */
+export function shortIdAmong(entry: Entry, entries: readonly Entry[]): string {
+  return shortenId(entry.id, shortIdLength(entries.map((each) => each.id)));
+}
+
+/**
  * id または その接頭辞から記録を1件に決める。決まらなければ `UserError`。
  *
  * **引き当ての規則は `domain/entry-id.ts` が持ち、ここは翻訳だけを行う**

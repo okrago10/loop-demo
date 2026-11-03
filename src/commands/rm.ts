@@ -1,8 +1,7 @@
 import { type CliIo, type Command, UserError } from "../cli.js";
 import { type CommandDeps, parseArgs } from "./args.js";
-import { shortenId, shortIdLength } from "../domain/entry-id.js";
 import type { CommandUsage } from "../format/help.js";
-import { describeEntry, resolveEntry, takeEntryId } from "./lookup.js";
+import { describeEntry, resolveEntry, shortIdAmong, takeEntryId } from "./lookup.js";
 
 /**
  * 削除してよいかを尋ねる。
@@ -57,9 +56,8 @@ export function createRmCommand(deps: CommandDeps, confirm: Confirm): Command {
       const entries = await deps.store.listAll();
       const target = resolveEntry(entries, id);
 
-      // 打った文字列ではなく、引き当てた記録の短縮 id を見せる。接頭辞で指定したときに
-      // 「どれが消えるのか」が分かるようにする
-      const shown = shortenId(target.id, shortIdLength(entries.map((entry) => entry.id)));
+      // 接頭辞で指定したときに「どれが消えるのか」が分かるようにする
+      const shown = shortIdAmong(target, entries);
 
       if (
         !skipConfirm &&

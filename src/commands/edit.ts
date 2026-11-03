@@ -5,9 +5,8 @@ import { endedAt, startedAt } from "../domain/entry.js";
 import { normalizeTag } from "../domain/tag.js";
 import type { LoadConfig } from "../store/config-store.js";
 import { type CommandDeps, loadWarnedConfig, parseArgs, resolveClockTimeOn } from "./args.js";
-import { shortenId, shortIdLength } from "../domain/entry-id.js";
 import type { CommandUsage } from "../format/help.js";
-import { describeEntry, resolveEntry, takeEntryId } from "./lookup.js";
+import { describeEntry, resolveEntry, shortIdAmong, takeEntryId } from "./lookup.js";
 
 /**
  * 記録を修正する。
@@ -114,7 +113,7 @@ export function createEditCommand(deps: CommandDeps, loadConfig: LoadConfig): Co
         const conflict = findOverlapping(candidate, entries);
         if (conflict !== undefined) {
           throw new UserError(
-            `編集後の時間が別の記録と重なります: ${describeEntry(conflict)}（id: ${shortenId(conflict.id, shortIdLength(entries.map((entry) => entry.id)))}）`,
+            `編集後の時間が別の記録と重なります: ${describeEntry(conflict)}（id: ${shortIdAmong(conflict, entries)}）`,
           );
         }
 
@@ -122,12 +121,11 @@ export function createEditCommand(deps: CommandDeps, loadConfig: LoadConfig): Co
 
         return {
           edited: candidate,
-          shown: shortenId(candidate.id, shortIdLength(entries.map((entry) => entry.id))),
+          shown: shortIdAmong(candidate, entries),
         };
       });
 
       io.out(`修正しました: ${describeEntry(edited)}`);
-      // 打った文字列ではなく、引き当てた記録の短縮 id を見せる（`log` の一覧と同じ表記）
       io.out(`id: ${shown}`);
     },
   };

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { UserError } from "../../src/cli.js";
-import { describeEntry, takeEntryId } from "../../src/commands/lookup.js";
+import { describeEntry, shortIdAmong, takeEntryId } from "../../src/commands/lookup.js";
 import { createEntry } from "../../src/domain/entry.js";
 
 describe("takeEntryId", () => {
@@ -51,5 +51,29 @@ describe("describeEntry", () => {
 
   it("空文字の note は無いものとして扱う（境界: 空文字）", () => {
     expect(describeEntry(entry({ note: "" }))).toBe("（名前なし）");
+  });
+});
+
+describe("shortIdAmong", () => {
+  const start = new Date("2026-08-13T00:00:00.000Z");
+
+  function withId(id: string) {
+    return createEntry({ start, tags: [] }, { newId: () => id });
+  }
+
+  const alice = withId("aaaaaaaa-1111-4000-8000-000000000001");
+  const bob = withId("bbbbbbbb-2222-4000-8000-000000000002");
+  const aliceTwin = withId("aaaaaaaa-9999-4000-8000-000000000009");
+
+  it("既定では先頭8桁", () => {
+    expect(shortIdAmong(alice, [alice, bob])).toBe("aaaaaaaa");
+  });
+
+  it("記録がそれ1件だけでも8桁（境界）", () => {
+    expect(shortIdAmong(alice, [alice])).toBe("aaaaaaaa");
+  });
+
+  it("桁数は渡した全記録で決まる。先頭が同じ id が他にあれば、その記録自身も伸びる", () => {
+    expect(shortIdAmong(bob, [alice, bob, aliceTwin])).toBe("bbbbbbbb-2");
   });
 });
