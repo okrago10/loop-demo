@@ -5,9 +5,8 @@ import { endedAt, startedAt } from "../domain/entry.js";
 import { normalizeTag } from "../domain/tag.js";
 import type { LoadConfig } from "../store/config-store.js";
 import { type CommandDeps, loadWarnedConfig, parseArgs, resolveClockTimeOn } from "./args.js";
-import { shortenId, shortIdLength } from "../domain/entry-id.js";
 import type { CommandUsage } from "../format/help.js";
-import { resolveEntry } from "./lookup.js";
+import { describeEntry, resolveEntry, shortIdAmong, takeEntryId } from "./lookup.js";
 
 /**
  * 記録を修正する。
@@ -59,7 +58,7 @@ export function createEditCommand(deps: CommandDeps, loadConfig: LoadConfig): Co
       const tagsValue = args.option("--tags");
       const noteValue = args.option("--note");
 
-      const id = takeId(args.positional);
+      const id = takeEntryId(args.positional, "修正する");
       if (
         startValue === undefined &&
         endValue === undefined &&
@@ -114,7 +113,7 @@ export function createEditCommand(deps: CommandDeps, loadConfig: LoadConfig): Co
         const conflict = findOverlapping(candidate, entries);
         if (conflict !== undefined) {
           throw new UserError(
-            `編集後の時間が別の記録と重なります: ${describe(conflict)}（id: ${shortenId(conflict.id, shortIdLength(entries.map((entry) => entry.id)))}）`,
+            `編集後の時間が別の記録と重なります: ${describeEntry(conflict)}（id: ${shortIdAmong(conflict, entries)}）`,
           );
         }
 
@@ -122,12 +121,11 @@ export function createEditCommand(deps: CommandDeps, loadConfig: LoadConfig): Co
 
         return {
           edited: candidate,
-          shown: shortenId(candidate.id, shortIdLength(entries.map((entry) => entry.id))),
+          shown: shortIdAmong(candidate, entries),
         };
       });
 
-      io.out(`修正しました: ${describe(edited)}`);
-      // 打った文字列ではなく、引き当てた記録の短縮 id を見せる（`log` の一覧と同じ表記）
+      io.out(`修正しました: ${describeEntry(edited)}`);
       io.out(`id: ${shown}`);
     },
   };
@@ -153,25 +151,6 @@ function endBaseDate(entry: Entry, now: Date): Date {
 }
 
 /**
- * 位置引数から id を1つ取り出す。
- *
- * **id を必須にし、2つ以上は弾く。** 省略を許して「実行中の記録」を暗黙の対象にすると、
- * 直したつもりの記録と実際に直る記録が食い違う。
- */
-function takeId(positional: readonly string[]): string {
-  const [id, ...extra] = positional;
-
-  if (id === undefined || id.trim() === "") {
-    throw new UserError("修正する記録の id を指定してください（tock log で確認できます）");
-  }
-  if (extra.length > 0) {
-    throw new UserError(`id は1つだけ指定してください: ${positional.join(" ")}`);
-  }
-
-  return id;
-}
-
-/**
  * `--tags "会議 proj/tock"` を正規化したタグの並びにする。
  *
  * 空白で区切る。`#` は付けても付けなくてもよい（`normalizeTag` が落とす）。
@@ -189,13 +168,4 @@ function parseTagList(value: string): readonly string[] {
   }
 
   return tags;
-}
-
-/** 記録を1行で表す。何が変わったかを確認できる程度の情報を出す。 */
-function describe(entry: Entry): string {
-  const label = [entry.note, ...entry.tags.map((tag) => `#${tag}`)].filter(
-    (part) => part !== undefined && part !== "",
-  );
-
-  return label.length === 0 ? "（名前なし）" : label.join(" ");
 }
