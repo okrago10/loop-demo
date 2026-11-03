@@ -36,7 +36,8 @@ export function takeEntryId(positional: readonly string[], action: string): stri
 /**
  * 記録を1行で表す。何を直した・消すのかが分かる程度の情報（note とタグ）を出す。
  *
- * 空文字の note は無いものとして扱う。`--note ""` で消した記録が空の見出しにならない。
+ * 空文字の note は無いものとして扱う。`createEntry` は空文字を落とすが、手で編集した
+ * 記録のファイルからは空文字のまま読める。
  */
 export function describeEntry(entry: Entry): string {
   const label = [entry.note, ...entry.tags.map((tag) => `#${tag}`)].filter(

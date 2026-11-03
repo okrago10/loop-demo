@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { UserError } from "../../src/cli.js";
 import { describeEntry, shortIdAmong, takeEntryId } from "../../src/commands/lookup.js";
-import { createEntry } from "../../src/domain/entry.js";
+import { createEntry, type Entry } from "../../src/domain/entry.js";
 
 describe("takeEntryId", () => {
   it("位置引数が1つならそれを返す", () => {
@@ -50,7 +50,10 @@ describe("describeEntry", () => {
   });
 
   it("空文字の note は無いものとして扱う（境界: 空文字）", () => {
-    expect(describeEntry(entry({ note: "" }))).toBe("（名前なし）");
+    // createEntry は空文字の note を落とすので、記録のファイルから読んだ形を直接組み立てる
+    const read: Entry = { id: "id-1", start: start.toISOString(), tags: [], note: "" };
+
+    expect(describeEntry(read)).toBe("（名前なし）");
   });
 });
 
