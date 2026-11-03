@@ -1,9 +1,8 @@
 import { type CliIo, type Command, UserError } from "../cli.js";
-import type { Entry } from "../domain/entry.js";
 import { type CommandDeps, parseArgs } from "./args.js";
 import { shortenId, shortIdLength } from "../domain/entry-id.js";
 import type { CommandUsage } from "../format/help.js";
-import { resolveEntry, takeEntryId } from "./lookup.js";
+import { describeEntry, resolveEntry, takeEntryId } from "./lookup.js";
 
 /**
  * 削除してよいかを尋ねる。
@@ -62,7 +61,10 @@ export function createRmCommand(deps: CommandDeps, confirm: Confirm): Command {
       // 「どれが消えるのか」が分かるようにする
       const shown = shortenId(target.id, shortIdLength(entries.map((entry) => entry.id)));
 
-      if (!skipConfirm && !(await confirm(`削除しますか: ${describe(target)}（id: ${shown}）`))) {
+      if (
+        !skipConfirm &&
+        !(await confirm(`削除しますか: ${describeEntry(target)}（id: ${shown}）`))
+      ) {
         io.out("中止しました。削除していません");
         return;
       }
@@ -80,17 +82,8 @@ export function createRmCommand(deps: CommandDeps, confirm: Confirm): Command {
         await deps.store.delete(target.id);
       });
 
-      io.out(`削除しました: ${describe(target)}`);
+      io.out(`削除しました: ${describeEntry(target)}`);
       io.out(`id: ${shown}`);
     },
   };
-}
-
-/** 記録を1行で表す。何を消すのかが分かる程度の情報を出す。 */
-function describe(entry: Entry): string {
-  const label = [entry.note, ...entry.tags.map((tag) => `#${tag}`)].filter(
-    (part) => part !== undefined && part !== "",
-  );
-
-  return label.length === 0 ? "（名前なし）" : label.join(" ");
 }

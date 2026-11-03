@@ -34,6 +34,19 @@ export function takeEntryId(positional: readonly string[], action: string): stri
 }
 
 /**
+ * 記録を1行で表す。何を直した・消すのかが分かる程度の情報（note とタグ）を出す。
+ *
+ * 空文字の note は無いものとして扱う。`--note ""` で消した記録が空の見出しにならない。
+ */
+export function describeEntry(entry: Entry): string {
+  const label = [entry.note, ...entry.tags.map((tag) => `#${tag}`)].filter(
+    (part) => part !== undefined && part !== "",
+  );
+
+  return label.length === 0 ? "（名前なし）" : label.join(" ");
+}
+
+/**
  * id または その接頭辞から記録を1件に決める。決まらなければ `UserError`。
  *
  * **引き当ての規則は `domain/entry-id.ts` が持ち、ここは翻訳だけを行う**

@@ -7,7 +7,7 @@ import type { LoadConfig } from "../store/config-store.js";
 import { type CommandDeps, loadWarnedConfig, parseArgs, resolveClockTimeOn } from "./args.js";
 import { shortenId, shortIdLength } from "../domain/entry-id.js";
 import type { CommandUsage } from "../format/help.js";
-import { resolveEntry, takeEntryId } from "./lookup.js";
+import { describeEntry, resolveEntry, takeEntryId } from "./lookup.js";
 
 /**
  * 記録を修正する。
@@ -114,7 +114,7 @@ export function createEditCommand(deps: CommandDeps, loadConfig: LoadConfig): Co
         const conflict = findOverlapping(candidate, entries);
         if (conflict !== undefined) {
           throw new UserError(
-            `編集後の時間が別の記録と重なります: ${describe(conflict)}（id: ${shortenId(conflict.id, shortIdLength(entries.map((entry) => entry.id)))}）`,
+            `編集後の時間が別の記録と重なります: ${describeEntry(conflict)}（id: ${shortenId(conflict.id, shortIdLength(entries.map((entry) => entry.id)))}）`,
           );
         }
 
@@ -126,7 +126,7 @@ export function createEditCommand(deps: CommandDeps, loadConfig: LoadConfig): Co
         };
       });
 
-      io.out(`修正しました: ${describe(edited)}`);
+      io.out(`修正しました: ${describeEntry(edited)}`);
       // 打った文字列ではなく、引き当てた記録の短縮 id を見せる（`log` の一覧と同じ表記）
       io.out(`id: ${shown}`);
     },
@@ -170,13 +170,4 @@ function parseTagList(value: string): readonly string[] {
   }
 
   return tags;
-}
-
-/** 記録を1行で表す。何が変わったかを確認できる程度の情報を出す。 */
-function describe(entry: Entry): string {
-  const label = [entry.note, ...entry.tags.map((tag) => `#${tag}`)].filter(
-    (part) => part !== undefined && part !== "",
-  );
-
-  return label.length === 0 ? "（名前なし）" : label.join(" ");
 }
