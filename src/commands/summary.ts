@@ -7,7 +7,7 @@ import { formatSummaryChartLines, formatSummaryLines } from "../format/summary.j
 import type { CommandUsage } from "../format/help.js";
 import { PLAIN_TERMINAL, type Terminal } from "../format/terminal.js";
 import type { LoadConfig } from "../store/config-store.js";
-import { type CommandDeps, parseArgs } from "./args.js";
+import { type CommandDeps, loadWarnedConfig, parseArgs } from "./args.js";
 
 /** `tock summary` の使い方。 */
 const SUMMARY_USAGE: CommandUsage = {
@@ -115,10 +115,7 @@ async function report(
 ): Promise<void> {
   // 設定の警告は集計より先に出す。表を読んだあとに「その値は無視した」と言われても、
   // どの数字が影響を受けたのかを読み直すことになる（`week` と同じ順）
-  const { config, warnings } = await loadConfig();
-  for (const warning of warnings) {
-    io.err(warning);
-  }
+  const config = await loadWarnedConfig(loadConfig, io);
 
   const period = periodOf(config.timezone);
   const now = deps.now();

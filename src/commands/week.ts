@@ -7,7 +7,7 @@ import { formatHeatmapLines } from "../format/heatmap.js";
 import { PLAIN_TERMINAL, type Terminal } from "../format/terminal.js";
 import { formatWeekLines } from "../format/week.js";
 import type { LoadConfig } from "../store/config-store.js";
-import { type CommandDeps, parseArgs } from "./args.js";
+import { type CommandDeps, loadWarnedConfig, parseArgs } from "./args.js";
 import type { CommandUsage } from "../format/help.js";
 
 /** 十進の整数。符号は付けられるが、先頭の余分な `0`・小数点・指数・空白は許さない。 */
@@ -78,10 +78,7 @@ export function createWeekCommand(
       const offsetWeeks = resolveOffset(args.option("--offset"));
       const fromOption = resolveWeekStartsOn(args.option("--week-starts-on"));
 
-      const { config, warnings } = await loadConfig();
-      for (const warning of warnings) {
-        io.err(warning);
-      }
+      const config = await loadWarnedConfig(loadConfig, io);
 
       const weekStartsOn = fromOption ?? config.weekStartsOn;
       const now = deps.now();
